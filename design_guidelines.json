@@ -1,0 +1,116 @@
+{
+  "theme": "light",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "vibe": "Premium B2B Enterprise Consulting, similar to McKinsey/Bain/Deloitte but modern SaaS. Highly analytical, functional, yet aesthetically crisp and authoritative.",
+  "colors": {
+    "primary": {
+      "hex": "#0A2540",
+      "tw_class": "bg-slate-900",
+      "text_class": "text-slate-900"
+    },
+    "secondary": {
+      "hex": "#F1F5F9",
+      "tw_class": "bg-slate-100",
+      "text_class": "text-slate-500"
+    },
+    "accent": {
+      "hex": "#0066FF",
+      "tw_class": "bg-blue-600",
+      "text_class": "text-blue-600"
+    },
+    "background": {
+      "hex": "#FFFFFF",
+      "tw_class": "bg-white",
+      "text_class": "text-slate-900"
+    },
+    "surface": {
+      "hex": "#F8FAFC",
+      "tw_class": "bg-slate-50",
+      "text_class": "text-slate-700"
+    },
+    "border": {
+      "hex": "#E2E8F0",
+      "tw_class": "border-slate-200"
+    },
+    "status": {
+      "success": "#059669",
+      "success_tw": "text-emerald-700 bg-emerald-50 border-emerald-200",
+      "warning": "#D97706",
+      "warning_tw": "text-amber-700 bg-amber-50 border-amber-200",
+      "error": "#E11D48",
+      "error_tw": "text-rose-700 bg-rose-50 border-rose-200",
+      "info": "#0284C7",
+      "info_tw": "text-sky-700 bg-sky-50 border-sky-200"
+    }
+  },
+  "typography": {
+    "heading_font": "Satoshi",
+    "body_font": "Manrope",
+    "data_font": "JetBrains Mono",
+    "scale": {
+      "h1": "text-3xl sm:text-4xl font-bold tracking-tight text-slate-900",
+      "h2": "text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900",
+      "h3": "text-xl sm:text-2xl font-semibold text-slate-800",
+      "h4": "text-lg sm:text-xl font-medium text-slate-800",
+      "body": "text-base text-slate-600 leading-relaxed",
+      "small": "text-sm text-slate-500",
+      "overline": "text-xs font-bold uppercase tracking-[0.2em] text-slate-400"
+    },
+    "rules": [
+      "Use tight letter spacing for headings.",
+      "Never center paragraphs or data blocks, left-align for clarity.",
+      "Use JetBrains Mono for SKU IDs, Cost Data, and Margins for columnar alignment."
+    ]
+  },
+  "layout": {
+    "spacing_scale": "Generous padding (p-6, p-8) within container boundaries.",
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "grid_strategy": "Control Room Grid (Dense, Data Correlation). Base grid: grid-cols-1 md:grid-cols-3 lg:grid-cols-4. Tight gap: gap-4 or gap-6.",
+    "patterns": [
+      "Progressive Disclosure: Show top-level metric (Health Score, Total Spend) first, hide details behind tabs/accordions.",
+      "Modular Widgets: Standardized widget sizes with subgrid alignment.",
+      "Cardless or 1px minimal borders for dashboard surfaces (The 'Grid Borders' tech look). No heavy drop shadows."
+    ]
+  },
+  "components": {
+    "cards": "bg-white border border-slate-200 rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow",
+    "buttons": {
+      "primary": "bg-slate-900 text-white rounded-md px-4 py-2 font-medium hover:bg-slate-800 transition-colors focus:ring-2 focus:ring-slate-400",
+      "secondary": "bg-white text-slate-700 border border-slate-300 rounded-md px-4 py-2 font-medium hover:bg-slate-50 transition-colors",
+      "accent": "bg-blue-600 text-white rounded-md px-4 py-2 font-medium hover:bg-blue-700 transition-colors"
+    },
+    "inputs": "bg-white border border-slate-300 rounded-md px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+    "tables": "w-full text-left text-sm text-slate-600. Th should be uppercase, tracking-wider, text-xs text-slate-500 bg-slate-50 border-b border-slate-200.",
+    "badges": "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border"
+  },
+  "interactive_elements": {
+    "hover_states": "Buttons and links must explicitly define hover colors.",
+    "focus_states": "Accessibility focus rings are mandatory.",
+    "motion": "Use subtle transitions (0.2s ease) on hover/focus. Animate chat sidebar sliding in from the right."
+  },
+  "icons_and_assets": {
+    "icon_library": "@phosphor-icons/react",
+    "icon_style": "Duotone or Regular weight, strictly functional.",
+    "image_urls": {
+      "consultant_avatar": {
+        "url": "https://images.unsplash.com/photo-1560250097-0b93528c311a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwxfHxidXNpbmVzc21hbiUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MzE0OTkzOHww&ixlib=rb-4.1.0&q=85",
+        "description": "Professional consultant avatar for the AI assistant or user profile."
+      }
+    }
+  },
+  "testing_rules": {
+    "data_testid": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case, role-based format (e.g., data-testid='start-review-button')."
+  },
+  "instructions_to_main_agent": [
+    "Build a robust, functional sidebar layout with global navigation.",
+    "Implement the 'Start New Procurement Review' as a wizard (stepper pattern).",
+    "For the dynamic forms, heavily customize Shadcn/UI Form primitives (remove the standard look, make it sharp).",
+    "For document upload, implement a functional drag-and-drop zone using standard HTML5 or specialized library.",
+    "The Resource Cost Benchmarking should use a data-dense table pattern with JetBrains Mono monospace fonts for numeric values.",
+    "SLA and Contract Risk panels should use progressive disclosure (accordion or tabs) with semantic colored badges (emerald for strong SLA, rose for high risk).",
+    "Integrate an AI Chat Sidebar (sliding out from right) equipped with message history and consulting-like prompts.",
+    "Ensure the entire app is styled with the Swiss & High-Contrast archetype (stark white, slate borders, deep navy primary actions).",
+    "Remember to include data-testid on every interactive button, input, and critical UI element.",
+    "Install the correct icon library: yarn add @phosphor-icons/react"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "summary": "Backend retest after LLM credit recharge. Analyze endpoint works (LLM completes ~65-90s server-side, produces full valid JSON), chat SSE streams correctly with context retention. However, the analyze endpoint hits the platform's 60s ingress/proxy timeout returning 502 to clients even though server-side analysis completes and persists successfully to DB.",
+  "tested_scope": ["backend", "integration"],
+  "passed": [
+    "POST /api/reviews creates reviews for both license and services",
+    "PATCH /api/reviews/{id} updates form_data (qty=100, unit_price=500, product_name Microsoft 365 E3, oem Microsoft, duration=12)",
+    "POST /api/reviews/{id}/upload accepts SOW TXT for services flow",
+    "License analysis (server-side): all 12 required fields present (executive_summary, commercial_summary, pricing_assessment{verdict='fair',rationale,estimated_savings_opportunity_pct=12}, sla_review{overall_rating,findings}, contract_risk[6], cost_optimization, negotiation_strategy, overall_procurement_score=68 (int 0-100), final_recommendation='accept-with-negotiation', recommendation_summary, resource_benchmark[] empty for license as expected, generated_at ISO ts). Status transitions to 'analyzed'",
+    "Services analysis: resource_benchmark contains 2 entries with all required fields (role='SAP Consultant', matched_role='SAP Consultant', market_cost_monthly=15500, expected_vendor_price=24025, vendor_quoted_monthly=12000, margin_pct=-22.6, competitiveness='excellent'). contract_risk[9], score=68",
+    "POST /api/reviews/{id}/chat returns content-type text/event-stream, streams 'data: {\"delta\":...}\\n\\n' chunks (24 deltas, 1531 chars in 13.8s) and terminates with 'data: {\"done\": true}'",
+    "GET /api/reviews/{id}/chat returns history with user+assistant messages, assistant content non-empty and persisted correctly",
+    "Follow-up chat maintains context: message 'Elaborate on the first point' responded with 6317 chars specifically expanding 'License Compliance and True-Up Exposure' from prior message (92 deltas, 46.1s)",
+    "LLM credits are functional - no 'Budget exceeded' errors observed in current run's LiteLLM calls"
+  ],
+  "failed": [
+    {
+      "area": "POST /api/reviews/{id}/analyze - ingress timeout",
+      "issue": "Client receives 502 Bad Gateway at exactly 60s from preview.emergentagent.com proxy while Claude call is still processing. Backend continues and persists analysis to DB successfully ~30s later, but the initial HTTP response never reaches the client. Both license (returned 200 server-side ~65s) and services (~130s including retries) exhibited this. Chat is unaffected because SSE streams keep the connection alive.",
+      "evidence": "HTTP 502 with emergentagent.com error HTML at elapsed=60.1s. Backend logs show 'POST /api/reviews/.../analyze HTTP/1.1 500 Internal Server Error' (Uvicorn logs the disconnected client as 500 after the client abandons), then a subsequent GET on the review shows status='analyzed' with valid analysis object. Reproducible on both /reviews/e070cef5.../analyze and /reviews/80cf6214.../analyze.",
+      "priority": "HIGH"
+    }
+  ],
+  "action_items": [
+    "The analyze endpoint synchronous call exceeds the 60s platform ingress timeout. Options: (a) convert /analyze to a background task pattern - return 202 immediately with a job id, let client poll GET /reviews/{id} for status='analyzed'; (b) stream progress via SSE similar to /chat to keep the connection alive; (c) prompt Claude for a smaller/faster response. Recommend (a) or (b). The analysis itself is correct - only the request/response delivery pattern needs fixing."
+  ],
+  "success_rate": {"backend": "90%", "frontend": "n/a"},
+  "retest_needed": true,
+  "full_testing_deferred": true
+}
