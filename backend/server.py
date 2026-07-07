@@ -82,7 +82,11 @@ RESOURCE_BENCHMARKS = {
     "DevOps Engineer":       {"junior": 6500,  "mid": 10000, "senior": 14000},
     "Business Analyst":      {"junior": 5500,  "mid": 8500,  "senior": 12000},
 }
-VENDOR_MARGIN_MULTIPLIER = 1.55  # overhead + margin on top of raw cost
+VENDOR_MARGIN_MULTIPLIER = 1.55  # legacy — retained for benchmarks endpoint back-compat
+# Fair-range margin bands used for resource-cost benchmarking (vendor price / market cost).
+FAIR_MARGIN_MIN = 0.22   # 22% markup → lower bound of fair vendor price
+FAIR_MARGIN_MAX = 0.35   # 35% markup → upper bound of fair vendor price
+EXPENSIVE_MAX = 0.50     # up to 50% markup is still "expensive" (yellow); above is "very-expensive" (red)
 
 # ============================================================
 # Helpers
@@ -350,7 +354,8 @@ async def catalog_template(kind: str):
         ws.append(["Dell", "PowerEdge R760", "R760-XL", "PWR-R760-01", "2x Xeon Gold, 256GB RAM",
                    10, 12500, "3Y NBD", "USD", "internal-2025", "2025-01", ""])
     buf = io.BytesIO()
-    wb.save(buf); buf.seek(0)
+    wb.save(buf)
+    buf.seek(0)
     return Response(
         content=buf.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -557,13 +562,11 @@ async def upload_document(review_id: str, files: List[UploadFile] = File(...)):
 async def compute_resource_benchmark(resources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Compute market-based benchmark for each resource role.
     Preference order: (1) custom benchmark from Mongo, (2) seeded RESOURCE_BENCHMARKS, (3) generic default.
+    Fair vendor price is a RANGE = market_cost × (1 + FAIR_MARGIN_MIN) to market_cost × (1 + FAIR_MARGIN_MAX).
     """
-    # Load custom benchmarks + multiplier setting
+    # Load custom benchmarks (multiplier setting kept for back-compat but not used in fair-range calc)
     custom_docs = await db.benchmarks.find({}, {"_id": 0}).to_list(500)
     custom_map = {d["role"].lower(): d for d in custom_docs}
-
-    settings = await db.settings.find_one({"key": "vendor_multiplier"}, {"_id": 0})
-    multiplier = settings["value"] if settings else VENDOR_MARGIN_MULTIPLIER
 
     results = []
     for res in resources:
@@ -610,7 +613,10 @@ async def compute_resource_benchmark(resources: List[Dict[str, Any]]) -> List[Di
                 source = "generic-fallback"
                 matched = "generic"
 
-        expected_vendor_price = round(market_cost * multiplier)
+        # Fair vendor price RANGE (22–35% margin on top of raw market cost)
+        fair_min = round(market_cost * (1 + FAIR_MARGIN_MIN))
+        fair_max = round(market_cost * (1 + FAIR_MARGIN_MAX))
+        expensive_ceiling = round(market_cost * (1 + EXPENSIVE_MAX))
 
         # parse vendor monthly rate
         raw_vendor = res.get("monthly_rate") or res.get("hourly_rate") or ""
@@ -627,11 +633,11 @@ async def compute_resource_benchmark(resources: List[Dict[str, Any]]) -> List[Di
         rating = "unknown"
         if vendor_num > 0:
             margin_pct = round(((vendor_num - market_cost) / market_cost) * 100, 1)
-            if margin_pct <= 40:
+            if vendor_num < fair_min:
                 rating = "excellent"
-            elif margin_pct <= 60:
+            elif vendor_num <= fair_max:
                 rating = "fair"
-            elif margin_pct <= 85:
+            elif vendor_num <= expensive_ceiling:
                 rating = "expensive"
             else:
                 rating = "very-expensive"
@@ -642,7 +648,9 @@ async def compute_resource_benchmark(resources: List[Dict[str, Any]]) -> List[Di
             "experience_level": level,
             "count": res.get("count", 1),
             "market_cost_monthly": market_cost,
-            "expected_vendor_price": expected_vendor_price,
+            "fair_vendor_min": fair_min,
+            "fair_vendor_max": fair_max,
+            "expensive_ceiling": expensive_ceiling,
             "vendor_quoted_monthly": vendor_num,
             "margin_pct": margin_pct,
             "competitiveness": rating,
