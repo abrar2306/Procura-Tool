@@ -3,7 +3,16 @@ import { CloudArrowUp, File, X } from "@phosphor-icons/react";
 import { uploadDocuments } from "../lib/api";
 import { toast } from "sonner";
 
-export default function UploadZone({ reviewId, onUploaded }) {
+export default function UploadZone({
+    reviewId,
+    onUploaded,
+    uploadFn = uploadDocuments,
+    title = "Drop procurement documents here",
+    subtitle = "PDF, DOCX, XLSX — SOW, MSA, SLA, proposals, pricing sheets",
+    submitLabel = "Upload & extract",
+    compact = false,
+    testidPrefix = "upload",
+}) {
     const [dragOver, setDragOver] = useState(false);
     const [files, setFiles] = useState([]);
     const [uploading, setUploading] = useState(false);
@@ -24,7 +33,7 @@ export default function UploadZone({ reviewId, onUploaded }) {
         if (!files.length) return;
         setUploading(true);
         try {
-            const r = await uploadDocuments(reviewId, files);
+            const r = await uploadFn(reviewId, files);
             toast.success(`Extracted data from ${files.length} document(s)`);
             setFiles([]);
             onUploaded && onUploaded(r);
@@ -35,21 +44,24 @@ export default function UploadZone({ reviewId, onUploaded }) {
         }
     };
 
+    const zonePadding = compact ? "p-6" : "p-10";
+    const iconSize = compact ? 32 : 48;
+
     return (
         <div>
             <div
                 onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                 onDragLeave={() => setDragOver(false)}
                 onDrop={onDrop}
-                className={`border-2 border-dashed rounded-lg p-10 text-center transition-colors ${
+                className={`border-2 border-dashed rounded-lg ${zonePadding} text-center transition-colors ${
                     dragOver ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-slate-50/60"
                 }`}
-                data-testid="upload-drop-zone"
+                data-testid={`${testidPrefix}-drop-zone`}
             >
-                <CloudArrowUp size={48} weight="duotone" className="mx-auto text-slate-400" />
-                <div className="mt-3 font-heading font-semibold text-slate-900">Drop procurement documents here</div>
-                <div className="text-xs text-slate-500 mt-1">PDF, DOCX, XLSX — SOW, MSA, SLA, proposals, pricing sheets</div>
-                <label className="inline-block mt-4 cursor-pointer">
+                <CloudArrowUp size={iconSize} weight="duotone" className="mx-auto text-slate-400" />
+                <div className={`mt-2 font-heading font-semibold text-slate-900 ${compact ? "text-sm" : ""}`}>{title}</div>
+                <div className="text-xs text-slate-500 mt-1">{subtitle}</div>
+                <label className="inline-block mt-3 cursor-pointer">
                     <span className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors">
                         Browse files
                     </span>
@@ -59,7 +71,7 @@ export default function UploadZone({ reviewId, onUploaded }) {
                         accept=".pdf,.docx,.xlsx,.txt,.csv"
                         onChange={handlePick}
                         className="hidden"
-                        data-testid="upload-file-input"
+                        data-testid={`${testidPrefix}-file-input`}
                     />
                 </label>
             </div>
@@ -76,7 +88,7 @@ export default function UploadZone({ reviewId, onUploaded }) {
                             <button
                                 onClick={() => setFiles(files.filter((_, idx) => idx !== i))}
                                 className="text-slate-400 hover:text-rose-600 transition-colors"
-                                data-testid={`remove-file-${i}`}
+                                data-testid={`${testidPrefix}-remove-file-${i}`}
                             >
                                 <X size={16} />
                             </button>
@@ -85,10 +97,10 @@ export default function UploadZone({ reviewId, onUploaded }) {
                     <button
                         onClick={doUpload}
                         disabled={uploading}
-                        data-testid="upload-submit-button"
+                        data-testid={`${testidPrefix}-submit-button`}
                         className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm font-medium py-2.5 rounded-md transition-colors"
                     >
-                        {uploading ? "Extracting information with AI…" : `Upload & extract (${files.length})`}
+                        {uploading ? "Extracting information with AI…" : `${submitLabel} (${files.length})`}
                     </button>
                 </div>
             )}

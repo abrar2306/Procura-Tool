@@ -473,44 +473,36 @@ async def delete_review(review_id: str):
 
 # ---- Document upload + extraction ----
 
-@api_router.post("/reviews/{review_id}/upload")
-async def upload_document(review_id: str, files: List[UploadFile] = File(...)):
-    r = await db.reviews.find_one({"id": review_id})
-    if not r:
-        raise HTTPException(404, "Review not found")
+# Fields written back into form_data (form workflows only) so the license/SKU or
+# hardware form auto-fills after a document upload. Only fills empty form fields
+# to preserve user edits.
+FORM_AUTOFILL_FIELDS = {
+    "license_sku": [
+        "oem", "reseller", "product_name", "product_version", "sku",
+        "license_type", "license_metric", "quantity", "unit_price",
+        "total_price", "contract_duration", "currency", "support_included",
+        "country", "procurement_date",
+    ],
+    "hardware_product": [
+        "oem", "product_name", "product_version", "sku", "configuration",
+        "support_level", "quantity", "unit_price", "total_price",
+        "warranty", "delivery_timeline", "currency", "country", "procurement_date",
+    ],
+}
 
-    documents = r.get("documents", [])
-    combined_text_parts = []
-
-    for f in files:
-        content = await f.read()
-        text = extract_text_from_bytes(f.filename, content)
-        doc_entry = {
-            "id": str(uuid.uuid4()),
-            "filename": f.filename,
-            "size": len(content),
-            "text_length": len(text),
-            "text_preview": text[:800],
-            "uploaded_at": now_iso(),
-        }
-        documents.append(doc_entry)
-        combined_text_parts.append(f"### FILE: {f.filename}\n{text}")
-
-    combined_text = "\n\n".join(combined_text_parts)
-    # cap for LLM input
-    capped_text = combined_text[:60000]
-
-    # Use LLM to extract structured procurement info
-    system = (
-        "You are an expert IT Procurement Consultant. Extract structured procurement information "
-        "from the provided documents (SOW, MSA, SLA, proposals, pricing sheets). "
-        "Return STRICT JSON ONLY, no prose, no markdown fences."
-    )
-    schema_hint = {
+def _extraction_schema() -> Dict[str, Any]:
+    return {
         "commercial": {
             "vendor_name": "", "service_name": "", "billing_model": "",
             "hourly_rate": "", "monthly_cost": "", "fixed_cost": "",
             "contract_duration": "", "total_value": "", "currency": ""
+        },
+        "license_sku": {
+            "oem": "", "reseller": "", "product_name": "", "product_version": "",
+            "sku": "", "license_type": "", "license_metric": "",
+            "quantity": "", "unit_price": "", "total_price": "",
+            "contract_duration": "", "currency": "", "support_included": "",
+            "country": "", "procurement_date": ""
         },
         "resources": [
             {"role": "", "count": 1, "experience_level": "junior|mid|senior",
@@ -527,32 +519,186 @@ async def upload_document(review_id: str, files: List[UploadFile] = File(...)):
             "exclusions": ""
         },
         "hardware": {
-            "oem": "", "product": "", "model_number": "", "part_number": "",
+            "oem": "", "product_name": "", "product_version": "", "sku": "",
             "configuration": "", "quantity": "", "warranty": "", "support_level": "",
             "delivery_timeline": "", "unit_price": "", "total_price": ""
         }
     }
+
+async def _extract_from_files(files: List[UploadFile], review: Dict[str, Any], session_prefix: str):
+    """Read files, extract text, and call the LLM to parse structured data.
+    Returns (documents_list_entries, extracted_dict)."""
+    documents = []
+    combined_text_parts = []
+    for f in files:
+        content = await f.read()
+        text = extract_text_from_bytes(f.filename, content)
+        documents.append({
+            "id": str(uuid.uuid4()),
+            "filename": f.filename,
+            "size": len(content),
+            "text_length": len(text),
+            "text_preview": text[:800],
+            "uploaded_at": now_iso(),
+        })
+        combined_text_parts.append(f"### FILE: {f.filename}\n{text}")
+    capped_text = ("\n\n".join(combined_text_parts))[:60000]
+
+    system = (
+        "You are an expert IT Procurement Consultant. Extract structured procurement information "
+        "from the provided documents (SOW, MSA, SLA, proposals, pricing sheets, license quotes). "
+        "Return STRICT JSON ONLY, no prose, no markdown fences."
+    )
+    schema_hint = _extraction_schema()
     prompt = (
-        f"PROCUREMENT CATEGORY: {r.get('category')}\nTYPE: {r.get('procurement_type')}\n\n"
+        f"PROCUREMENT CATEGORY: {review.get('category')}\nTYPE: {review.get('procurement_type')}\n\n"
         f"DOCUMENTS:\n{capped_text}\n\n"
         f"Extract into this JSON schema (fill only fields with evidence, leave others empty):\n"
         f"{json.dumps(schema_hint, indent=2)}\n\n"
         f"Return JSON only."
     )
-
     try:
-        extracted = await llm_json_call(system, prompt, session_id=f"extract-{review_id}")
+        extracted = await llm_json_call(system, prompt, session_id=session_prefix)
     except Exception as e:
         logger.error(f"Extraction LLM failed: {e}")
-        extracted = {"commercial": {}, "resources": [], "contract": {}, "sla": {}, "hardware": {}}
+        extracted = {"commercial": {}, "license_sku": {}, "resources": [],
+                     "contract": {}, "sla": {}, "hardware": {}}
+    return documents, extracted
+
+
+def _merge_autofill(review: Dict[str, Any], extracted: Dict[str, Any]) -> Dict[str, Any]:
+    """For form-workflow categories, merge extracted values into form_data — but
+    only overwrite fields that are currently empty, so manual edits win."""
+    category = review.get("category")
+    if category not in FORM_AUTOFILL_FIELDS:
+        return review.get("form_data", {}) or {}
+    form_data = dict(review.get("form_data") or {})
+    # Prefer the category-specific block; fall back to hardware/commercial
+    source_block = {}
+    if category == "license_sku":
+        source_block = {**(extracted.get("commercial") or {}), **(extracted.get("license_sku") or {})}
+    elif category == "hardware_product":
+        source_block = {**(extracted.get("commercial") or {}), **(extracted.get("hardware") or {})}
+    for key in FORM_AUTOFILL_FIELDS[category]:
+        val = source_block.get(key)
+        if val in (None, "", []):
+            continue
+        if not form_data.get(key):  # only fill empties
+            form_data[key] = val
+    return form_data
+
+
+@api_router.post("/reviews/{review_id}/upload")
+async def upload_document(review_id: str, files: List[UploadFile] = File(...)):
+    r = await db.reviews.find_one({"id": review_id})
+    if not r:
+        raise HTTPException(404, "Review not found")
+
+    new_docs, extracted = await _extract_from_files(files, r, session_prefix=f"extract-{review_id}")
+    all_docs = (r.get("documents") or []) + new_docs
+
+    # For form-workflow categories, auto-fill the commercial form from the extraction.
+    autofilled_form = _merge_autofill(r, extracted)
 
     await db.reviews.update_one(
         {"id": review_id},
         {"$set": {
-            "documents": documents,
+            "documents": all_docs,
             "extracted_data": extracted,
+            "form_data": autofilled_form,
             "updated_at": now_iso(),
         }}
+    )
+    r = await db.reviews.find_one({"id": review_id}, {"_id": 0})
+    return r
+
+
+@api_router.post("/reviews/{review_id}/upload-v2")
+async def upload_document_v2(review_id: str, files: List[UploadFile] = File(...)):
+    """Upload an UPDATED (v2) proposal. Kept separate from v1 so we can compare."""
+    r = await db.reviews.find_one({"id": review_id})
+    if not r:
+        raise HTTPException(404, "Review not found")
+
+    new_docs, extracted = await _extract_from_files(files, r, session_prefix=f"extract-v2-{review_id}")
+    all_docs = (r.get("documents_v2") or []) + new_docs
+
+    await db.reviews.update_one(
+        {"id": review_id},
+        {"$set": {
+            "documents_v2": all_docs,
+            "extracted_data_v2": extracted,
+            "comparison": None,  # invalidate any old comparison
+            "updated_at": now_iso(),
+        }}
+    )
+    r = await db.reviews.find_one({"id": review_id}, {"_id": 0})
+    return r
+
+
+@api_router.post("/reviews/{review_id}/compare")
+async def compare_proposals(review_id: str):
+    """Compare v1 vs v2 extracted proposals and return improvement analysis."""
+    r = await db.reviews.find_one({"id": review_id}, {"_id": 0})
+    if not r:
+        raise HTTPException(404, "Review not found")
+    v1 = r.get("extracted_data") or {}
+    v2 = r.get("extracted_data_v2") or {}
+    if not v2:
+        raise HTTPException(400, "No v2 proposal uploaded yet. Upload the updated proposal first.")
+
+    system = (
+        "You are a senior IT Procurement Consultant. You will be given two versions of the same "
+        "vendor proposal (v1 = original, v2 = updated). Compare them and identify meaningful "
+        "improvements, regressions, and material unchanged concerns. Focus on commercial terms, "
+        "SLAs, contract clauses, and resource pricing. Return STRICT JSON ONLY."
+    )
+
+    schema = {
+        "summary": "2-3 sentence high-level summary of what changed",
+        "verdict": "significantly-improved|improved|mixed|worse|unchanged",
+        "improvement_score": 0,
+        "improvements": [
+            {"area": "", "v1_value": "", "v2_value": "",
+             "impact": "high|medium|low", "note": ""}
+        ],
+        "regressions": [
+            {"area": "", "v1_value": "", "v2_value": "",
+             "impact": "high|medium|low", "note": ""}
+        ],
+        "unchanged_key_concerns": [
+            {"area": "", "current_value": "", "why_it_matters": ""}
+        ],
+        "commercial_delta": {
+            "v1_total": "", "v2_total": "", "delta_pct": 0,
+            "note": ""
+        },
+        "sla_delta_summary": "prose describing key SLA changes",
+        "final_recommendation": "accept-v2|continue-negotiating|reject-v2",
+        "recommendation_summary": "1-2 sentences"
+    }
+
+    ctx = {
+        "v1_extracted": v1,
+        "v2_extracted": v2,
+        "original_analysis": r.get("analysis"),
+    }
+    prompt = (
+        f"PROPOSAL COMPARISON CONTEXT:\n{json.dumps(ctx, indent=2, default=str)[:30000]}\n\n"
+        f"Produce a comparison strictly in this JSON schema:\n{json.dumps(schema, indent=2)}\n\n"
+        f"improvement_score is 0-100 (0 = v2 much worse, 50 = equivalent, 100 = major improvement). "
+        f"Only list items with real deltas. Return JSON only, no markdown."
+    )
+    try:
+        comparison = await llm_json_call(system, prompt, session_id=f"compare-{review_id}")
+        comparison["generated_at"] = now_iso()
+    except Exception as e:
+        logger.error(f"Comparison LLM failed: {e}")
+        raise HTTPException(500, f"Comparison failed: {e}")
+
+    await db.reviews.update_one(
+        {"id": review_id},
+        {"$set": {"comparison": comparison, "updated_at": now_iso()}}
     )
     r = await db.reviews.find_one({"id": review_id}, {"_id": 0})
     return r

@@ -39,6 +39,14 @@ export const uploadDocuments = (id, files) => {
         .post(`/reviews/${id}/upload`, fd, { headers: { "Content-Type": "multipart/form-data" } })
         .then((r) => r.data);
 };
+export const uploadDocumentsV2 = (id, files) => {
+    const fd = new FormData();
+    files.forEach((f) => fd.append("files", f));
+    return api
+        .post(`/reviews/${id}/upload-v2`, fd, { headers: { "Content-Type": "multipart/form-data" } })
+        .then((r) => r.data);
+};
+export const compareProposals = (id) => api.post(`/reviews/${id}/compare`).then((r) => r.data);
 
 export async function streamChat(reviewId, message, onDelta, onDone, onError) {
     try {

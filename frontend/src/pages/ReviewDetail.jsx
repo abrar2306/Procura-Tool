@@ -9,6 +9,7 @@ import LicenseSkuForm from "../components/LicenseSkuForm";
 import ExtractedDataEditor from "../components/ExtractedDataEditor";
 import AnalysisReport from "../components/AnalysisReport";
 import ChatSidebar from "../components/ChatSidebar";
+import ProposalComparison from "../components/ProposalComparison";
 
 const TAB_LIST = [
     { id: "input", label: "Input", icon: FileText },
@@ -86,7 +87,8 @@ export default function ReviewDetail() {
     };
 
     const hasInput = isForm
-        ? Object.keys(review.form_data || {}).some((k) => review.form_data[k])
+        ? (Object.keys(review.form_data || {}).some((k) => review.form_data[k]) ||
+           (review.documents || []).length > 0)
         : (review.documents || []).length > 0;
 
     return (
@@ -148,33 +150,56 @@ export default function ReviewDetail() {
             {tab === "input" && (
                 <div className="animate-step">
                     {isForm ? (
-                        <div className="border border-slate-200 rounded-lg bg-white p-6">
-                            <div className="mb-4 flex items-center justify-between">
-                                <div>
-                                    <div className="font-heading font-semibold text-slate-900">Commercial form</div>
-                                    <div className="text-xs text-slate-500 mt-0.5">Fill in the procurement details to run AI analysis</div>
+                        <div className="space-y-4">
+                            {/* Auto-fill from documents (optional) */}
+                            <div className="border border-blue-200 bg-blue-50/40 rounded-lg p-5">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div>
+                                        <div className="font-heading font-semibold text-slate-900">Auto-fill from a document</div>
+                                        <div className="text-xs text-slate-500 mt-0.5">
+                                            Upload a vendor quote, license order form, or pricing PDF/Word/Excel — Procura extracts the fields and pre-fills the form below.
+                                        </div>
+                                    </div>
                                 </div>
-                                <button
-                                    onClick={() => saveForm(review.form_data || {})}
-                                    className="text-xs font-medium border border-slate-300 hover:bg-slate-50 px-3 py-1.5 rounded-md"
-                                    data-testid="save-form-button"
-                                >
-                                    Save draft
-                                </button>
+                                <UploadZone
+                                    reviewId={id}
+                                    onUploaded={(r) => { setReview(r); toast.success("Form auto-filled from document"); }}
+                                    title="Drop a quote, PO, or license order form"
+                                    subtitle="PDF, DOCX, XLSX, CSV, TXT — fields already filled won't be overwritten"
+                                    submitLabel="Extract & auto-fill"
+                                    compact
+                                    testidPrefix="upload-autofill"
+                                />
                             </div>
-                            <LicenseSkuForm
-                                data={review.form_data || {}}
-                                onChange={(fd) => setReview({ ...review, form_data: fd })}
-                                procurementType={review.procurement_type}
-                            />
-                            <div className="mt-4 pt-4 border-t border-slate-100 flex justify-end">
-                                <button
-                                    onClick={() => saveForm(review.form_data || {}).then(() => toast.success("Saved"))}
-                                    className="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md"
-                                    data-testid="save-and-analyze-button"
-                                >
-                                    Save
-                                </button>
+
+                            <div className="border border-slate-200 rounded-lg bg-white p-6">
+                                <div className="mb-4 flex items-center justify-between">
+                                    <div>
+                                        <div className="font-heading font-semibold text-slate-900">Commercial form</div>
+                                        <div className="text-xs text-slate-500 mt-0.5">Fill in the procurement details to run AI analysis</div>
+                                    </div>
+                                    <button
+                                        onClick={() => saveForm(review.form_data || {})}
+                                        className="text-xs font-medium border border-slate-300 hover:bg-slate-50 px-3 py-1.5 rounded-md"
+                                        data-testid="save-form-button"
+                                    >
+                                        Save draft
+                                    </button>
+                                </div>
+                                <LicenseSkuForm
+                                    data={review.form_data || {}}
+                                    onChange={(fd) => setReview({ ...review, form_data: fd })}
+                                    procurementType={review.procurement_type}
+                                />
+                                <div className="mt-4 pt-4 border-t border-slate-100 flex justify-end">
+                                    <button
+                                        onClick={() => saveForm(review.form_data || {}).then(() => toast.success("Saved"))}
+                                        className="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md"
+                                        data-testid="save-and-analyze-button"
+                                    >
+                                        Save
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     ) : (
@@ -229,9 +254,15 @@ export default function ReviewDetail() {
             )}
 
             {tab === "analysis" && (
-                <div className="animate-step">
+                <div className="animate-step space-y-6">
                     {review.analysis ? (
-                        <AnalysisReport analysis={review.analysis} />
+                        <>
+                            <AnalysisReport analysis={review.analysis} />
+                            {/* Proposal comparison — only for document-driven categories (services / hardware support) */}
+                            {!isForm && (
+                                <ProposalComparison review={review} onReviewUpdate={setReview} />
+                            )}
+                        </>
                     ) : (
                         <div className="border border-slate-200 border-dashed rounded-lg p-16 text-center bg-slate-50/50">
                             <Sparkle size={40} weight="duotone" className="mx-auto text-blue-500" />
