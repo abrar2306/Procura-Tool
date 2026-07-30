@@ -1,9 +1,38 @@
 import axios from "axios";
+import { toast } from "sonner";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8000";
 export const API = `${BACKEND_URL}/api`;
 
 export const api = axios.create({ baseURL: API });
+
+api.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        let message = "An unexpected error occurred.";
+        if (error.response) {
+            const status = error.response.status;
+            if (status === 422) {
+                message = "Validation Error: Please check your input and try again.";
+            } else if (status === 404) {
+                message = "Resource not found.";
+            } else if (error.response.data && error.response.data.detail) {
+                const detail = error.response.data.detail;
+                message = typeof detail === "string" ? detail : JSON.stringify(detail);
+            } else if (status >= 500) {
+                message = "Server error. Please try again later.";
+            }
+        } else if (error.message) {
+            message = error.message;
+        }
+        
+        toast.error("Error", {
+            description: message,
+        });
+        
+        return Promise.reject(error);
+    }
+);
 
 export const getBenchmarks = () => api.get("/benchmarks").then((r) => r.data);
 export const upsertBenchmark = (payload) => api.post("/benchmarks", payload).then((r) => r.data);
@@ -25,32 +54,30 @@ export const importCatalog = (kind, file) => {
     return api.post(`/catalog/${kind}/import`, fd, { headers: { "Content-Type": "multipart/form-data" } }).then((r) => r.data);
 };
 
-export const createReview = (payload) => api.post("/reviews", payload).then((r) => r.data);
-export const listReviews = () => api.get("/reviews").then((r) => r.data);
-export const getReview = (id) => api.get(`/reviews/${id}`).then((r) => r.data);
-export const updateReview = (id, payload) => api.patch(`/reviews/${id}`, payload).then((r) => r.data);
-export const deleteReview = (id) => api.delete(`/reviews/${id}`).then((r) => r.data);
-export const analyzeReview = (id) => api.post(`/reviews/${id}/analyze`).then((r) => r.data);
-export const getChatHistory = (id) => api.get(`/reviews/${id}/chat`).then((r) => r.data);
-export const uploadDocuments = (id, files) => {
+export const createReview = (payload) => api.post("/requests", payload).then((r) => r.data);
+export const listReviews = () => api.get("/requests").then((r) => r.data);
+export const getReview = (id) => api.get(`/requests/${id}`).then((r) => r.data);
+export const updateReview = (id, payload) => api.patch(`/requests/${id}`, payload).then((r) => r.data);
+export const deleteReview = (id) => api.delete(`/requests/${id}`).then((r) => r.data);
+export const analyzeReview = (id) => api.post(`/requests/${id}/analyze`).then((r) => r.data);
+export const getChatHistory = (id) => api.get(`/requests/${id}/chat`).then((r) => r.data);
+
+export const uploadDocuments = async (id, files) => {
     const fd = new FormData();
     files.forEach((f) => fd.append("files", f));
-    return api
-        .post(`/reviews/${id}/upload`, fd, { headers: { "Content-Type": "multipart/form-data" } })
-        .then((r) => r.data);
+    // 1. Upload
+    await api.post(`/requests/${id}/documents`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+    // 2. Extract
+    const extRes = await api.post(`/requests/${id}/extract`);
+    return extRes.data;
 };
-export const uploadDocumentsV2 = (id, files) => {
-    const fd = new FormData();
-    files.forEach((f) => fd.append("files", f));
-    return api
-        .post(`/reviews/${id}/upload-v2`, fd, { headers: { "Content-Type": "multipart/form-data" } })
-        .then((r) => r.data);
-};
+export const uploadDocumentsV2 = uploadDocuments; // use same logic
+
 export const compareProposals = (id) => api.post(`/reviews/${id}/compare`).then((r) => r.data);
 
 export async function streamChat(reviewId, message, onDelta, onDone, onError) {
     try {
-        const res = await fetch(`${API}/reviews/${reviewId}/chat`, {
+        const res = await fetch(`${API}/requests/${reviewId}/chat`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ message }),

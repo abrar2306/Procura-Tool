@@ -22,29 +22,43 @@ export default function Benchmarks() {
     const [newRow, setNewRow] = useState(emptyRow);
     const fileRef = useRef(null);
 
-    const load = () => getBenchmarks().then((d) => { setRoles(d.roles || {}); setMult(d.vendor_multiplier); });
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(false);
+
+    const load = () => {
+        setLoading(true);
+        getBenchmarks()
+            .then((d) => { setRoles(d.roles || {}); setMult(d.vendor_multiplier); setLoading(false); setError(false); })
+            .catch(() => { setError(true); setLoading(false); });
+    };
     useEffect(() => { load(); }, []);
 
     const save = async (role, patch) => {
         try { await upsertBenchmark({ role, ...patch, source: "custom" }); toast.success(`Saved ${role}`); load(); }
-        catch (e) { toast.error(e.message); }
+        catch (e) { if(!e.response) toast.error(e.message); }
     };
     const remove = async (role) => {
         if (!window.confirm(`Delete "${role}"?`)) return;
-        await deleteBenchmark(role); toast.success(`Removed ${role}`); load();
+        try { await deleteBenchmark(role); toast.success(`Removed ${role}`); load(); }
+        catch (e) { if(!e.response) toast.error(e.message); }
     };
     const addNew = async () => {
         if (!newRow.role.trim()) return toast.error("Role name required");
-        await upsertBenchmark({ role: newRow.role.trim(), junior: Number(newRow.junior) || null, mid: Number(newRow.mid) || null, senior: Number(newRow.senior) || null, notes: newRow.notes, source: "custom" });
-        toast.success(`Added ${newRow.role}`); setNewRow(emptyRow); load();
+        try { 
+            await upsertBenchmark({ role: newRow.role.trim(), junior: Number(newRow.junior) || null, mid: Number(newRow.mid) || null, senior: Number(newRow.senior) || null, notes: newRow.notes, source: "custom" });
+            toast.success(`Added ${newRow.role}`); setNewRow(emptyRow); load();
+        } catch (e) { if(!e.response) toast.error(e.message); }
     };
     const onImport = async (e) => {
         const f = e.target.files?.[0]; if (!f) return;
         try { const r = await importBenchmarks(f); toast.success(`Imported ${r.imported} rows`); load(); }
-        catch (err) { toast.error("Import failed: " + (err.response?.data?.detail || err.message)); }
+        catch (err) { if(!err.response) toast.error("Import failed: " + err.message); }
         e.target.value = "";
     };
-    const saveMult = async () => { await setMultiplier(Number(multiplier)); toast.success("Multiplier updated"); };
+    const saveMult = async () => { 
+        try { await setMultiplier(Number(multiplier)); toast.success("Multiplier updated"); }
+        catch (e) { if(!e.response) toast.error(e.message); }
+    };
     const downloadTemplate = () => {
         window.location.href = `${process.env.REACT_APP_BACKEND_URL}/api/benchmarks/template`;
     };
@@ -122,9 +136,17 @@ export default function Benchmarks() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {rows.map(([role, vals]) => (
-                                    <BenchmarkRow key={role} role={role} vals={vals} onSave={save} onDelete={remove} />
-                                ))}
+                                {loading ? (
+                                    <tr><td colSpan="6" className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+                                ) : error ? (
+                                    <tr><td colSpan="6" className="px-4 py-8 text-center text-rose-500 text-sm">Failed to load resource rates.</td></tr>
+                                ) : rows.length === 0 ? (
+                                    <tr><td colSpan="6" className="px-4 py-10 text-center text-slate-500 text-sm">No benchmark records yet.</td></tr>
+                                ) : (
+                                    rows.map(([role, vals]) => (
+                                        <BenchmarkRow key={role} role={role} vals={vals} onSave={save} onDelete={remove} />
+                                    ))
+                                )}
                                 <tr className="bg-slate-50/50 border-t border-slate-200">
                                     <td className="px-4 py-2"><input value={newRow.role} onChange={(e) => setNewRow({ ...newRow, role: e.target.value })} placeholder="New role" className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm" data-testid="new-role-input" /></td>
                                     <td className="px-4 py-2"><input type="number" value={newRow.junior} onChange={(e) => setNewRow({ ...newRow, junior: e.target.value })} className="w-24 px-2 py-1.5 border border-slate-300 rounded-md text-sm text-right font-mono-data" data-testid="new-junior-input" /></td>

@@ -19,6 +19,7 @@ const StatusBadge = ({ status }) => {
     const map = {
         draft: "bg-slate-100 text-slate-600 border-slate-200",
         analyzed: "bg-emerald-50 text-emerald-700 border-emerald-200",
+        error: "bg-red-50 text-red-700 border-red-200",
     };
     return (
         <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-semibold border ${map[status] || map.draft}`}>
@@ -31,9 +32,12 @@ export default function Dashboard() {
     const nav = useNavigate();
     const [reviews, setReviews] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(false);
 
     useEffect(() => {
-        listReviews().then((d) => { setReviews(d); setLoading(false); }).catch(() => setLoading(false));
+        listReviews()
+            .then((d) => { setReviews(d); setLoading(false); })
+            .catch(() => { setError(true); setLoading(false); });
     }, []);
 
     const analyzed = reviews.filter((r) => r.status === "analyzed");
@@ -105,6 +109,16 @@ export default function Dashboard() {
                 </div>
                 {loading ? (
                     <div className="p-8 text-center text-slate-500 text-sm">Loading…</div>
+                ) : error ? (
+                    <div className="p-10 text-center">
+                        <div className="text-slate-500 text-sm">Failed to load reviews.</div>
+                        <button
+                            onClick={() => window.location.reload()}
+                            className="mt-4 inline-flex items-center gap-2 border border-slate-300 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md"
+                        >
+                            Retry
+                        </button>
+                    </div>
                 ) : reviews.length === 0 ? (
                     <div className="p-10 text-center">
                         <div className="text-slate-500 text-sm">No reviews yet. Start your first procurement review.</div>
@@ -137,7 +151,7 @@ export default function Dashboard() {
                                     data-testid={`review-row-${r.id}`}
                                 >
                                     <td className="px-6 py-4">
-                                        <div className="font-medium text-slate-900">{r.project_name || "Untitled project"}</div>
+                                        <div className="font-medium text-slate-900">{r.title || r.project_name || "Untitled project"}</div>
                                     </td>
                                     <td className="px-6 py-4 text-slate-600">{CATEGORY_LABELS[r.category] || r.category}</td>
                                     <td className="px-6 py-4 font-mono-data font-semibold text-slate-900">

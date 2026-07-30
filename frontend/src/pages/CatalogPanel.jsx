@@ -14,8 +14,9 @@ export default function CatalogPanel({ kind }) {
     const fileRef = useRef(null);
     const meta = KIND_META[kind];
 
-    const load = () => listCatalog(kind).then((d) => { setData(d); setLoading(false); });
-    useEffect(() => { setLoading(true); load(); }, [kind]);
+    const [error, setError] = useState(false);
+    const load = React.useCallback(() => { listCatalog(kind).then((d) => { setData(d); setLoading(false); setError(false); }).catch(() => { setError(true); setLoading(false); }); }, [kind]);
+    useEffect(() => { setLoading(true); load(); }, [kind, load]);
 
     const onImport = async (e) => {
         const f = e.target.files?.[0];
@@ -25,7 +26,9 @@ export default function CatalogPanel({ kind }) {
             toast.success(`Imported ${r.imported} rows into ${kind} benchmarks`);
             load();
         } catch (err) {
-            toast.error("Import failed: " + (err.response?.data?.detail || err.message));
+            if (!err.response) {
+                toast.error("Import failed: " + err.message);
+            }
         }
         e.target.value = "";
     };
@@ -78,6 +81,8 @@ export default function CatalogPanel({ kind }) {
                         <tbody>
                             {loading ? (
                                 <tr><td colSpan={data.columns.length + 1} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+                            ) : error ? (
+                                <tr><td colSpan={data.columns.length + 1} className="px-4 py-8 text-center text-rose-500 text-sm">Failed to load {meta.label} benchmarks.</td></tr>
                             ) : data.rows.length === 0 ? (
                                 <tr><td colSpan={data.columns.length + 1} className="px-4 py-10 text-center">
                                     <div className="text-slate-500 text-sm">No {kind} benchmark records yet.</div>
@@ -86,7 +91,19 @@ export default function CatalogPanel({ kind }) {
                             ) : data.rows.map((r) => (
                                 <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50/50">
                                     {data.columns.map((c) => (
-                                        <td key={c} className="px-4 py-2 text-slate-700 whitespace-nowrap">{r[c] ?? "—"}</td>
+                                        <td key={c} className="px-4 py-2 text-slate-700 whitespace-nowrap">
+                                            {c === "volume_tiers" && Array.isArray(r[c]) ? (
+                                                <div className="flex gap-1">
+                                                    {r[c].map((tier, idx) => (
+                                                        <span key={idx} className="bg-green-100 text-green-800 text-[10px] px-2 py-0.5 rounded-full font-medium border border-green-200">
+                                                            {tier.min_quantity}-{tier.max_quantity || "∞"}: {tier.discount_percentage}% off
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                r[c] ?? "—"
+                                            )}
+                                        </td>
                                     ))}
                                     <td className="px-4 py-2 text-right">
                                         <button onClick={() => remove(r.id)} className="text-slate-400 hover:text-rose-600 p-1.5" data-testid={`delete-catalog-${r.id}`}>

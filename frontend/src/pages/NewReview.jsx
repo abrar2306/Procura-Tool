@@ -39,10 +39,14 @@ export default function NewReview() {
     const submit = async () => {
         setSubmitting(true);
         try {
+            let backendCategory = "SOFTWARE";
+            if (ptype === "hardware") backendCategory = "HARDWARE";
+            else if (category === "services") backendCategory = "RESOURCE"; // or SOFTWARE, but RESOURCE is supported in MVP
+            
             const r = await createReview({
                 procurement_type: ptype,
-                category,
-                project_name: projectName,
+                category: backendCategory,
+                title: projectName,
             });
             nav(`/review/${r.id}`);
         } finally {

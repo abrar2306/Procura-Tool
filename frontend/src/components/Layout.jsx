@@ -56,7 +56,7 @@ export default function Layout({ children }) {
             {/* Main */}
             <div className="flex-1 flex flex-col min-w-0">
                 <header className="h-16 border-b border-slate-200 flex items-center justify-between px-6 bg-white/80 backdrop-blur-sm sticky top-0 z-30">
-                    <div className="flex items-center gap-3">
+                    <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer">
                         <div className="w-8 h-8 rounded-md bg-gradient-to-br from-slate-900 to-slate-700 flex items-center justify-center shadow-sm">
                             <Gavel size={16} weight="duotone" color="#fff" />
                         </div>
@@ -67,7 +67,7 @@ export default function Layout({ children }) {
                                 IT Procurement Advisory Platform
                             </div>
                         </div>
-                    </div>
+                    </Link>
                     <div className="flex items-center gap-2">
                         <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />

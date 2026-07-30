@@ -38,7 +38,9 @@ export default function UploadZone({
             setFiles([]);
             onUploaded && onUploaded(r);
         } catch (e) {
-            toast.error("Upload failed: " + (e.response?.data?.detail || e.message));
+            if (!e.response) {
+                toast.error("Upload failed: " + e.message);
+            }
         } finally {
             setUploading(false);
         }

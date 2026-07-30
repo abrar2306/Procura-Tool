@@ -79,7 +79,9 @@ export default function ProposalComparison({ review, onReviewUpdate }) {
             onReviewUpdate(r);
             toast.success("Comparison ready");
         } catch (e) {
-            toast.error("Comparison failed: " + (e.response?.data?.detail || e.message));
+            if (!e.response) {
+                toast.error("Comparison failed: " + e.message);
+            }
         } finally { setComparing(false); }
     };
 

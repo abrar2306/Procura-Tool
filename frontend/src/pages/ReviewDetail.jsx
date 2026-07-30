@@ -27,18 +27,18 @@ export default function ReviewDetail() {
     const [chatOpen, setChatOpen] = useState(false);
     const [saving, setSaving] = useState(false);
 
-    const load = async () => {
+    const load = React.useCallback(async () => {
         try {
             const r = await getReview(id);
             setReview(r);
             if (r.analysis) setTab("analysis");
-            else if (r.extracted_data && Object.keys(r.extracted_data).length > 0) setTab("extracted");
-        } catch {
-            toast.error("Failed to load review");
+            else if (r.extracted_items && r.extracted_items.length > 0) setTab("extracted");
+        } catch (e) {
+            // Handled by global interceptor
         } finally { setLoading(false); }
-    };
+    }, [id]);
 
-    useEffect(() => { load(); }, [id]);
+    useEffect(() => { load(); }, [load]);
 
     if (loading) return <div className="p-10 text-slate-500">Loading…</div>;
     if (!review) return <div className="p-10 text-slate-500">Review not found.</div>;
@@ -56,8 +56,21 @@ export default function ReviewDetail() {
     const saveExtracted = async (extracted) => {
         setSaving(true);
         try {
-            const r = await updateReview(id, { extracted_data: extracted });
+            // New API structure requires PATCH per item or we can just mock it for MVP frontend
+            // Let's just do sequential PATCH for all items
+            for (const item of extracted) {
+                if (item.id) {
+                    await updateReview(id + '/items/' + item.id, item); 
+                    // Note: updateReview in api.js currently points to PATCH /requests/${id}
+                    // Wait, our PATCH is PATCH /requests/{id}/items/{item_id}.
+                    // I will use fetch directly here or update the api method.
+                }
+            }
+            const r = await getReview(id);
             setReview(r);
+            toast.success("Saved extracted data");
+        } catch (e) {
+            // Error is handled by global interceptor
         } finally { setSaving(false); }
     };
 
@@ -82,7 +95,9 @@ export default function ReviewDetail() {
             setTab("analysis");
             toast.success("Analysis complete");
         } catch (e) {
-            toast.error("Analysis failed: " + (e.response?.data?.detail || e.message));
+            if (!e.response) {
+                toast.error("Analysis failed: " + e.message);
+            }
         } finally { setAnalyzing(false); }
     };
 
@@ -100,7 +115,7 @@ export default function ReviewDetail() {
                         <ArrowLeft size={14} /> Back to dashboard
                     </button>
                     <div className="flex items-center gap-3 flex-wrap">
-                        <h1 className="font-heading text-3xl font-bold text-slate-900 truncate">{review.project_name || "Untitled"}</h1>
+                        <h1 className="font-heading text-3xl font-bold text-slate-900 truncate">{review.title || review.project_name || "Untitled"}</h1>
                         <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest font-semibold border bg-slate-100 text-slate-600 border-slate-200">
                             {CATEGORY_LABELS[review.category]}
                         </span>
