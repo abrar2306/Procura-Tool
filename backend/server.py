@@ -38,6 +38,28 @@ app.include_router(benchmarks_router)
 app.include_router(comparison_router)
 
 
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from fastapi.exceptions import HTTPException
+
 @app.get("/api")
 async def root():
     return {"service": "IT Procurement Advisory API - MVP", "status": "ok"}
+
+# Mount React static files (only works if frontend/build exists)
+frontend_build_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "build")
+
+if os.path.exists(frontend_build_dir):
+    app.mount("/static", StaticFiles(directory=os.path.join(frontend_build_dir, "static")), name="static")
+
+    @app.get("/{catchall:path}")
+    def serve_react_app(catchall: str):
+        # Allow requests to /api to hit the API, not the react app
+        if catchall.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API route not found")
+        
+        # Serve React frontend for all other routes
+        file_path = os.path.join(frontend_build_dir, catchall)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(frontend_build_dir, "index.html"))
