@@ -26,6 +26,7 @@ class ExtractedItem(BaseModel):
     id: Optional[str] = None
     request_id: Optional[str] = None
     document_id: Optional[str] = None
+    document_version: int = 1
     category: ProcurementCategory
 
     raw_description: Optional[str] = None

@@ -111,7 +111,7 @@ def evaluate_hardware_match(
             or item_model in [normalize_string(a) for a in candidate.get("aliases", [])]
         )
     ):
-        score += 15
+        score += 50
         if method == MatchMethod.NONE:
             method = MatchMethod.APPROVED_ALIAS
 

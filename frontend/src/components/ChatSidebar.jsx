@@ -67,7 +67,6 @@ export default function ChatSidebar({ reviewId, open, onClose }) {
                         </div>
                         <div>
                             <div className="text-sm font-heading font-bold text-slate-900">AI Procurement Assistant</div>
-                            <div className="text-[10px] uppercase tracking-widest text-slate-500">Claude Sonnet 4.5</div>
                         </div>
                     </div>
                     <button onClick={onClose} data-testid="close-chat-button" className="text-slate-400 hover:text-slate-900">

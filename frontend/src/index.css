@@ -74,6 +74,41 @@ body {
 }
 .animate-chat-in { animation: slideInRight 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
 
+/* Score ring animation for Advisory Report */
+@keyframes scoreRingFill {
+    from { stroke-dashoffset: var(--ring-circumference, 440); }
+    to   { stroke-dashoffset: var(--ring-offset, 440); }
+}
+.animate-score-ring {
+    animation: scoreRingFill 1.2s cubic-bezier(0.22, 1, 0.36, 1) 0.3s forwards;
+    stroke-dashoffset: var(--ring-circumference, 440);
+}
+@keyframes countUp {
+    from { opacity: 0; transform: scale(0.85); }
+    to   { opacity: 1; transform: scale(1); }
+}
+.animate-count-up {
+    animation: countUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.8s both;
+}
+@keyframes badgePop {
+    0%   { opacity: 0; transform: translateY(6px) scale(0.92); }
+    100% { opacity: 1; transform: translateY(0)   scale(1); }
+}
+.animate-badge-pop {
+    animation: badgePop 0.45s cubic-bezier(0.22, 1, 0.36, 1) 1.1s both;
+}
+/* Staggered fade-in for report sections */
+@keyframes sectionFadeIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.animate-section-1 { animation: sectionFadeIn 0.4s ease-out 0.2s both; }
+.animate-section-2 { animation: sectionFadeIn 0.4s ease-out 0.35s both; }
+.animate-section-3 { animation: sectionFadeIn 0.4s ease-out 0.5s both; }
+.animate-section-4 { animation: sectionFadeIn 0.4s ease-out 0.65s both; }
+.animate-section-5 { animation: sectionFadeIn 0.4s ease-out 0.8s both; }
+.animate-section-6 { animation: sectionFadeIn 0.4s ease-out 0.95s both; }
+
 /* Grid pattern background for hero */
 .bg-grid-slate {
     background-image:

@@ -1,83 +1,261 @@
-import React, { useState } from "react";
-import { ArrowUp, ArrowDown, Minus, CheckCircle, XCircle, Warning, CaretDown, CaretRight } from "@phosphor-icons/react";
+import React, { useState, useMemo } from "react";
+import { ArrowUp, ArrowDown, Minus, Plus, Trash, Eye, EyeSlash, CaretDown, CaretRight } from "@phosphor-icons/react";
 import UploadZone from "./UploadZone";
 import { uploadDocumentsV2, compareProposals } from "../lib/api";
+import { computeItemDiff, generateRawDiff } from "../lib/itemMatcher";
 import { toast } from "sonner";
+import CountUp from "react-countup";
 
-const verdictBadge = (v) => ({
-    "significantly-improved": "bg-emerald-100 text-emerald-800 border-emerald-300",
-    improved: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    mixed: "bg-amber-50 text-amber-700 border-amber-200",
-    worse: "bg-rose-50 text-rose-700 border-rose-200",
-    unchanged: "bg-slate-100 text-slate-600 border-slate-200",
-}[v] || "bg-slate-100 text-slate-600 border-slate-200");
+const fmt = (v) => "$" + (v || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const fmtPct = (v) => (v > 0 ? "+" : "") + (v || 0).toFixed(1) + "%";
 
-const impactColor = (i) => ({
-    high: "text-rose-700 bg-rose-50 border-rose-200",
-    medium: "text-amber-700 bg-amber-50 border-amber-200",
-    low: "text-slate-700 bg-slate-100 border-slate-200",
-}[i] || "text-slate-700 bg-slate-100 border-slate-200");
-
-const RecIcon = ({ v }) => {
-    if (v === "accept-v2") return <CheckCircle size={22} weight="fill" className="text-emerald-600" />;
-    if (v === "reject-v2") return <XCircle size={22} weight="fill" className="text-rose-600" />;
-    return <Warning size={22} weight="fill" className="text-amber-600" />;
+const statusBorder = {
+    decreased: "border-l-emerald-500",
+    increased: "border-l-rose-500",
+    modified: "border-l-amber-500",
+    unchanged: "border-l-slate-200",
 };
 
-const DeltaLine = ({ v1, v2, kind }) => {
-    const arrow = kind === "up" ? <ArrowUp size={12} weight="bold" className="text-emerald-600" />
-        : kind === "down" ? <ArrowDown size={12} weight="bold" className="text-rose-600" />
-        : <Minus size={12} weight="bold" className="text-slate-400" />;
+const statusBg = {
+    decreased: "bg-emerald-50/40",
+    increased: "bg-rose-50/40",
+    modified: "bg-amber-50/30",
+    unchanged: "",
+};
+
+const DeltaBadge = ({ value, pct }) => {
+    if (Math.abs(pct) < 0.01) return <span className="text-xs text-slate-400 font-mono">—</span>;
+    const isDown = value < 0;
     return (
-        <div className="text-xs text-slate-600 mt-1 flex items-center gap-2 flex-wrap">
-            <span className="line-through text-slate-400 font-mono-data">{v1 || "—"}</span>
-            {arrow}
-            <span className="font-mono-data font-semibold text-slate-900">{v2 || "—"}</span>
+        <span className={`inline-flex items-center gap-0.5 text-xs font-semibold font-mono ${isDown ? "text-emerald-700" : "text-rose-700"}`}>
+            {isDown ? <ArrowDown size={10} weight="bold" /> : <ArrowUp size={10} weight="bold" />}
+            {fmt(Math.abs(value))} ({fmtPct(pct)})
+        </span>
+    );
+};
+
+/* ──────── Tier 1: Delta Summary Cards ──────── */
+const DeltaSummary = ({ summary }) => {
+    const isGreen = summary.delta < 0;
+    return (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="border border-slate-200 rounded-lg p-4">
+                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">V1 Total</div>
+                <div className="mt-1 text-xl font-bold font-mono text-slate-500 line-through">
+                    <CountUp end={summary.v1_total} prefix="$" separator="," duration={1.2} />
+                </div>
+            </div>
+            <div className="border border-slate-200 rounded-lg p-4">
+                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Revised Total</div>
+                <div className="mt-1 font-heading text-2xl font-bold text-slate-900">
+                    <CountUp end={summary.v2_total} prefix="$" separator="," duration={1.2} />
+                </div>
+            </div>
+            <div className={`border rounded-lg p-4 ${isGreen ? "border-emerald-200 bg-emerald-50/40" : "border-rose-200 bg-rose-50/40"}`}>
+                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Net Change</div>
+                <div className={`mt-1 text-xl font-bold font-mono ${isGreen ? "text-emerald-700" : "text-rose-700"}`}>
+                    <CountUp end={summary.delta} prefix={summary.delta > 0 ? "+$" : "-$"} separator="," duration={1.2} formattingFn={(v) => (summary.delta >= 0 ? "+$" : "-$") + Math.abs(v).toLocaleString()} />
+                    <span className="text-sm ml-1">({fmtPct(summary.delta_pct)})</span>
+                </div>
+            </div>
+            <div className="border border-slate-200 rounded-lg p-4">
+                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Items Changed</div>
+                <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] uppercase tracking-widest font-bold">
+                    {summary.items_decreased > 0 && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-full">
+                            <ArrowDown size={8} weight="bold" />{summary.items_decreased} reduced
+                        </span>
+                    )}
+                    {summary.items_increased > 0 && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-rose-100 text-rose-800 rounded-full">
+                            <ArrowUp size={8} weight="bold" />{summary.items_increased} increased
+                        </span>
+                    )}
+                    {summary.items_added > 0 && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded-full">
+                            <Plus size={8} weight="bold" />{summary.items_added} added
+                        </span>
+                    )}
+                    {summary.items_removed > 0 && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-slate-200 text-slate-700 rounded-full">
+                            <Trash size={8} weight="bold" />{summary.items_removed} removed
+                        </span>
+                    )}
+                    {summary.items_unchanged > 0 && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded-full">
+                            <Minus size={8} weight="bold" />{summary.items_unchanged} same
+                        </span>
+                    )}
+                </div>
+            </div>
         </div>
     );
 };
 
-const ItemRow = ({ item, kind }) => {
-    const [open, setOpen] = useState(false);
+/* ──────── Tier 2: Structured Comparison Table ──────── */
+const DEFAULT_SHOW = 10;
+
+const ComparisonTable = ({ diff }) => {
+    const [showAll, setShowAll] = useState(false);
+    const { matched, addedInV2, removedFromV1 } = diff;
+
+    const allRows = useMemo(() => {
+        const rows = [];
+        matched.forEach(m => rows.push({ type: "matched", ...m }));
+        addedInV2.forEach(a => rows.push({ type: "added", ...a }));
+        removedFromV1.forEach(r => rows.push({ type: "removed", ...r }));
+        return rows;
+    }, [matched, addedInV2, removedFromV1]);
+
+    const visible = showAll ? allRows : allRows.slice(0, DEFAULT_SHOW);
+
     return (
-        <div className="px-5 py-3">
-            <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-slate-900">{item.area}</div>
-                    <DeltaLine v1={item.v1_value} v2={item.v2_value} kind={kind === "improvement" ? "up" : kind === "regression" ? "down" : "flat"} />
-                </div>
-                <span className={`text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full border shrink-0 ${impactColor(item.impact)}`}>
-                    {item.impact} impact
-                </span>
+        <div className="border border-slate-200 rounded-lg overflow-hidden">
+            <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                    <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
+                            <th className="text-left px-4 py-2.5 w-[30%]">Item</th>
+                            <th className="text-right px-3 py-2.5">V1 Qty</th>
+                            <th className="text-right px-3 py-2.5">V1 Price</th>
+                            <th className="text-right px-3 py-2.5">V1 Total</th>
+                            <th className="text-right px-3 py-2.5">Revised Qty</th>
+                            <th className="text-right px-3 py-2.5">Revised Price</th>
+                            <th className="text-right px-3 py-2.5">Revised Total</th>
+                            <th className="text-right px-4 py-2.5 w-[14%]">Δ Change</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                        {visible.map((row, i) => {
+                            if (row.type === "matched") {
+                                return (
+                                    <tr key={`m-${i}`} className={`border-l-3 ${statusBorder[row.status]} ${statusBg[row.status]} transition-colors hover:bg-slate-50/60`}>
+                                        <td className="px-4 py-2.5 font-medium text-slate-900 truncate max-w-[250px]" title={row.description}>{row.description}</td>
+                                        <td className="px-3 py-2.5 text-right font-mono text-slate-600">{row.v1_quantity}</td>
+                                        <td className="px-3 py-2.5 text-right font-mono text-slate-600">{fmt(row.v1_unit_price)}</td>
+                                        <td className="px-3 py-2.5 text-right font-mono text-slate-600">{fmt(row.v1_total)}</td>
+                                        <td className="px-3 py-2.5 text-right font-mono text-slate-900 font-semibold">{row.v2_quantity}</td>
+                                        <td className="px-3 py-2.5 text-right font-mono text-slate-900 font-semibold">{fmt(row.v2_unit_price)}</td>
+                                        <td className="px-3 py-2.5 text-right font-mono text-slate-900 font-semibold">{fmt(row.v2_total)}</td>
+                                        <td className="px-4 py-2.5 text-right"><DeltaBadge value={row.delta_total} pct={row.delta_pct} /></td>
+                                    </tr>
+                                );
+                            }
+                            if (row.type === "added") {
+                                return (
+                                    <tr key={`a-${i}`} className="border-l-3 border-l-blue-500 bg-blue-50/30 transition-colors hover:bg-blue-50/50">
+                                        <td className="px-4 py-2.5 font-medium text-blue-900 truncate max-w-[250px] flex items-center gap-1.5" title={row.description}>
+                                            <Plus size={12} weight="bold" className="text-blue-600 shrink-0" />{row.description}
+                                        </td>
+                                        <td className="px-3 py-2.5 text-right font-mono text-slate-300">—</td>
+                                        <td className="px-3 py-2.5 text-right font-mono text-slate-300">—</td>
+                                        <td className="px-3 py-2.5 text-right font-mono text-slate-300">—</td>
+                                        <td className="px-3 py-2.5 text-right font-mono text-blue-900 font-semibold">{row.quantity}</td>
+                                        <td className="px-3 py-2.5 text-right font-mono text-blue-900 font-semibold">{fmt(row.unit_price)}</td>
+                                        <td className="px-3 py-2.5 text-right font-mono text-blue-900 font-semibold">{fmt(row.total)}</td>
+                                        <td className="px-4 py-2.5 text-right text-[10px] uppercase tracking-widest font-bold text-blue-700">New</td>
+                                    </tr>
+                                );
+                            }
+                            // removed
+                            return (
+                                <tr key={`r-${i}`} className="border-l-3 border-l-slate-400 bg-slate-50/50 transition-colors hover:bg-slate-100/50">
+                                    <td className="px-4 py-2.5 font-medium text-slate-400 line-through truncate max-w-[250px] flex items-center gap-1.5" title={row.description}>
+                                        <Trash size={12} weight="bold" className="text-slate-400 shrink-0" />{row.description}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right font-mono text-slate-400 line-through">{row.quantity}</td>
+                                    <td className="px-3 py-2.5 text-right font-mono text-slate-400 line-through">{fmt(row.unit_price)}</td>
+                                    <td className="px-3 py-2.5 text-right font-mono text-slate-400 line-through">{fmt(row.total)}</td>
+                                    <td className="px-3 py-2.5 text-right font-mono text-slate-300">—</td>
+                                    <td className="px-3 py-2.5 text-right font-mono text-slate-300">—</td>
+                                    <td className="px-3 py-2.5 text-right font-mono text-slate-300">—</td>
+                                    <td className="px-4 py-2.5 text-right text-[10px] uppercase tracking-widest font-bold text-slate-400">Removed</td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
             </div>
-            {item.note && (
-                <>
+            {allRows.length > DEFAULT_SHOW && (
+                <div className="border-t border-slate-200 px-4 py-2.5 flex justify-center">
                     <button
-                        onClick={() => setOpen((v) => !v)}
-                        className="mt-1.5 flex items-center gap-1 text-[10px] uppercase tracking-widest text-slate-500 font-semibold hover:text-slate-900"
+                        onClick={() => setShowAll(!showAll)}
+                        className="text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors flex items-center gap-1"
                     >
-                        {open ? <CaretDown size={12} weight="bold" /> : <CaretRight size={12} weight="bold" />}
-                        Analyst note
+                        {showAll ? <CaretDown size={12} weight="bold" /> : <CaretRight size={12} weight="bold" />}
+                        {showAll ? `Show Less` : `View All ${allRows.length} Items`}
                     </button>
-                    {open && <div className="mt-1 text-xs text-slate-600 leading-relaxed">{item.note}</div>}
-                </>
+                </div>
             )}
         </div>
     );
 };
 
+/* ──────── Tier 3: Raw Diff View ──────── */
+const RawDiffView = ({ diff }) => {
+    const [open, setOpen] = useState(false);
+    const lines = useMemo(() => generateRawDiff(diff), [diff]);
+
+    const lineStyle = {
+        removed: "bg-rose-950/80 text-rose-300",
+        added: "bg-emerald-950/70 text-emerald-300",
+        unchanged: "text-slate-400",
+    };
+    const linePrefix = { removed: "−", added: "+", unchanged: " " };
+
+    return (
+        <div className="border border-slate-200 rounded-lg overflow-hidden">
+            <button
+                onClick={() => setOpen(!open)}
+                className="w-full px-4 py-2.5 bg-slate-50 hover:bg-slate-100 transition-colors flex items-center justify-between text-sm font-medium text-slate-700"
+            >
+                <span className="flex items-center gap-2">
+                    {open ? <EyeSlash size={14} /> : <Eye size={14} />}
+                    Raw Diff View
+                </span>
+                {open ? <CaretDown size={14} weight="bold" /> : <CaretRight size={14} weight="bold" />}
+            </button>
+            {open && (
+                <div className="bg-slate-900 p-4 overflow-x-auto max-h-80 overflow-y-auto">
+                    <pre className="text-xs font-mono leading-relaxed">
+                        {lines.map((line, i) => (
+                            <div key={i} className={`px-2 py-0.5 rounded-sm ${lineStyle[line.type] || ""}`}>
+                                <span className="opacity-50 select-none mr-2">{linePrefix[line.type]}</span>
+                                {line.text}
+                            </div>
+                        ))}
+                    </pre>
+                </div>
+            )}
+        </div>
+    );
+};
+
+/* ──────── Main Component ──────── */
 export default function ProposalComparison({ review, onReviewUpdate }) {
     const [comparing, setComparing] = useState(false);
     const hasV2 = (review.documents_v2 || []).length > 0;
-    const comp = review.comparison;
+    const hasV2Items = (review.extracted_items_v2 || []).length > 0;
+
+    const diff = useMemo(() => {
+        if (review.comparison) {
+            return {
+                matched: review.comparison.matched_items || [],
+                addedInV2: review.comparison.added_in_v2 || [],
+                removedFromV1: review.comparison.removed_from_v1 || [],
+                summary: review.comparison.summary || {}
+            };
+        }
+        return null;
+    }, [review.comparison]);
 
     const runCompare = async () => {
         setComparing(true);
-        toast.info("Comparing v1 vs v2 proposal…");
+        toast.info("Comparing original vs revised proposal…");
         try {
             const r = await compareProposals(review.id);
-            onReviewUpdate(r);
-            toast.success("Comparison ready");
+            onReviewUpdate({ ...review, comparison: r });
+            toast.success("Comparison saved");
         } catch (e) {
             if (!e.response) {
                 toast.error("Comparison failed: " + e.message);
@@ -87,172 +265,69 @@ export default function ProposalComparison({ review, onReviewUpdate }) {
 
     return (
         <div className="border border-slate-200 rounded-lg bg-white overflow-hidden" data-testid="proposal-comparison-section">
-            <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/60">
-                <div className="font-heading font-semibold text-slate-900">Updated proposal (v2) comparison</div>
+            <div className="p-6 border-b border-slate-200">
+                <div className="font-heading font-semibold text-slate-900">Revised Proposal Comparison</div>
                 <div className="text-xs text-slate-500 mt-0.5">
-                    Upload a revised proposal from the vendor to see improvements over v1.
+                    Upload a revised proposal from the vendor to see improvements over the original.
                 </div>
             </div>
 
-            {/* Upload zone (always visible, allows replacing) */}
+            {/* Upload zone */}
             <div className="p-5 border-b border-slate-200">
                 <UploadZone
                     reviewId={review.id}
-                    uploadFn={uploadDocumentsV2}
-                    onUploaded={(r) => { onReviewUpdate(r); toast.success("v2 extracted"); }}
-                    title={hasV2 ? "Replace v2 with a newer version" : "Drop the updated (v2) proposal here"}
-                    subtitle="PDF, DOCX, XLSX — the same file types as v1"
-                    submitLabel="Upload v2 & extract"
                     compact
+                    uploadFn={uploadDocumentsV2}
+                    onUploaded={(r) => { onReviewUpdate(r); toast.success("Revised proposal extracted"); }}
+                    title={hasV2 ? "Replace revision with a newer document" : "Drop the revised proposal document here"}
+                    subtitle="We'll automatically extract line items and compare against the original."
+                    submitLabel="Upload & extract"
                     testidPrefix="upload-v2"
                 />
                 {hasV2 && (
                     <div className="mt-3 flex items-center justify-between gap-3">
                         <div className="text-xs text-slate-500">
-                            {review.documents_v2.length} v2 document{review.documents_v2.length > 1 ? "s" : ""} uploaded:{" "}
+                            {review.documents_v2.length} revised document{review.documents_v2.length > 1 ? "s" : ""} uploaded:{" "}
                             <span className="text-slate-700">{review.documents_v2.map((d) => d.filename).join(", ")}</span>
                         </div>
-                        <button
-                            onClick={runCompare}
-                            disabled={comparing}
-                            data-testid="run-comparison-button"
-                            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm font-medium px-4 py-2 rounded-md"
-                        >
-                            {comparing ? "Comparing…" : comp ? "Re-run comparison" : "Run comparison"}
-                        </button>
+                        {!diff && (
+                            <button
+                                onClick={runCompare}
+                                disabled={comparing || !hasV2Items}
+                                title={!hasV2Items ? "Extract revised document first" : ""}
+                                data-testid="run-comparison-button"
+                                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm font-medium px-4 py-2 rounded-md"
+                            >
+                                {comparing ? "Comparing…" : "Run comparison"}
+                            </button>
+                        )}
                     </div>
                 )}
             </div>
 
-            {/* Comparison result */}
-            {comp && (
+            {/* Three-tier comparison result */}
+            {diff && (
                 <div className="p-5 space-y-4">
-                    {/* Top row: verdict + recommendation + improvement score */}
-                    <div className="grid md:grid-cols-3 gap-4">
-                        <div className="border border-slate-200 rounded-lg p-4">
-                            <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Overall verdict</div>
-                            <div className="mt-2 flex items-center gap-2">
-                                <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest font-bold border ${verdictBadge(comp.verdict)}`}>
-                                    {(comp.verdict || "").replace(/-/g, " ")}
-                                </span>
-                            </div>
-                            <div className="mt-3">
-                                <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Improvement score</div>
-                                <div className="mt-1 flex items-baseline gap-1.5">
-                                    <div className="text-3xl font-heading font-bold font-mono-data text-slate-900">{comp.improvement_score || 0}</div>
-                                    <div className="text-slate-400 text-xs">/ 100</div>
-                                </div>
-                                <div className="mt-1.5 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                                    <div
-                                        className={`h-full rounded-full ${
-                                            (comp.improvement_score || 0) >= 65 ? "bg-emerald-500"
-                                            : (comp.improvement_score || 0) >= 45 ? "bg-amber-500"
-                                            : "bg-rose-500"
-                                        }`}
-                                        style={{ width: `${comp.improvement_score || 0}%` }}
-                                    />
-                                </div>
-                            </div>
-                        </div>
+                    {/* Tier 1: Delta Summary Cards */}
+                    <DeltaSummary summary={diff.summary} />
 
-                        <div className="border border-slate-200 rounded-lg p-4 md:col-span-2">
-                            <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Recommendation</div>
-                            <div className="mt-2 flex items-center gap-3">
-                                <RecIcon v={comp.final_recommendation} />
-                                <div className="text-lg font-heading font-bold text-slate-900 capitalize leading-tight">
-                                    {(comp.final_recommendation || "—").replace(/-/g, " ")}
-                                </div>
-                            </div>
-                            <div className="text-xs text-slate-600 mt-2 leading-relaxed">{comp.recommendation_summary}</div>
-                            {comp.summary && (
-                                <div className="text-xs text-slate-500 mt-3 pt-3 border-t border-slate-100 leading-relaxed">{comp.summary}</div>
-                            )}
-                        </div>
+                    {/* Tier 2: Structured Comparison Table */}
+                    <ComparisonTable diff={diff} />
+
+                    {/* Tier 3: Raw Diff View */}
+                    <RawDiffView diff={diff} />
+
+                    {/* Save comparison button */}
+                    <div className="flex justify-end">
+                        <button
+                            onClick={runCompare}
+                            disabled={comparing}
+                            data-testid="save-comparison-button"
+                            className="inline-flex items-center gap-2 text-xs font-medium border border-slate-300 hover:bg-slate-50 px-3 py-1.5 rounded-md text-slate-600 transition-colors"
+                        >
+                            {comparing ? "Saving…" : "Save comparison to database"}
+                        </button>
                     </div>
-
-                    {/* Commercial delta banner */}
-                    {comp.commercial_delta && (comp.commercial_delta.v1_total || comp.commercial_delta.v2_total) && (
-                        <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50">
-                            <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-2">Commercial delta</div>
-                            <div className="flex items-center gap-6 flex-wrap">
-                                <div>
-                                    <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">v1 total</div>
-                                    <div className="font-mono-data text-slate-500 line-through">{comp.commercial_delta.v1_total || "—"}</div>
-                                </div>
-                                <ArrowDown size={16} weight="bold" className="text-slate-400 rotate-[-90deg]" />
-                                <div>
-                                    <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">v2 total</div>
-                                    <div className="font-mono-data font-bold text-slate-900">{comp.commercial_delta.v2_total || "—"}</div>
-                                </div>
-                                {typeof comp.commercial_delta.delta_pct === "number" && (
-                                    <div className="ml-auto">
-                                        <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Change</div>
-                                        <div className={`font-mono-data font-bold ${comp.commercial_delta.delta_pct < 0 ? "text-emerald-700" : comp.commercial_delta.delta_pct > 0 ? "text-rose-700" : "text-slate-700"}`}>
-                                            {comp.commercial_delta.delta_pct > 0 ? "+" : ""}{comp.commercial_delta.delta_pct}%
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                            {comp.commercial_delta.note && (
-                                <div className="text-xs text-slate-600 mt-2 leading-relaxed">{comp.commercial_delta.note}</div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Improvements */}
-                    {comp.improvements?.length > 0 && (
-                        <div className="border border-slate-200 rounded-lg overflow-hidden">
-                            <div className="px-5 py-2.5 bg-emerald-50 border-b border-emerald-100 flex items-center gap-2">
-                                <ArrowUp size={14} weight="bold" className="text-emerald-700" />
-                                <div className="font-heading font-semibold text-emerald-900 text-sm">Improvements ({comp.improvements.length})</div>
-                            </div>
-                            <div className="divide-y divide-slate-100">
-                                {comp.improvements.map((it, i) => <ItemRow key={i} item={it} kind="improvement" />)}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Regressions */}
-                    {comp.regressions?.length > 0 && (
-                        <div className="border border-slate-200 rounded-lg overflow-hidden">
-                            <div className="px-5 py-2.5 bg-rose-50 border-b border-rose-100 flex items-center gap-2">
-                                <ArrowDown size={14} weight="bold" className="text-rose-700" />
-                                <div className="font-heading font-semibold text-rose-900 text-sm">Regressions ({comp.regressions.length})</div>
-                            </div>
-                            <div className="divide-y divide-slate-100">
-                                {comp.regressions.map((it, i) => <ItemRow key={i} item={it} kind="regression" />)}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Unchanged key concerns */}
-                    {comp.unchanged_key_concerns?.length > 0 && (
-                        <div className="border border-slate-200 rounded-lg overflow-hidden">
-                            <div className="px-5 py-2.5 bg-slate-100 border-b border-slate-200 flex items-center gap-2">
-                                <Minus size={14} weight="bold" className="text-slate-500" />
-                                <div className="font-heading font-semibold text-slate-800 text-sm">Still unresolved ({comp.unchanged_key_concerns.length})</div>
-                            </div>
-                            <div className="divide-y divide-slate-100">
-                                {comp.unchanged_key_concerns.map((it, i) => (
-                                    <div key={i} className="px-5 py-3">
-                                        <div className="text-sm font-medium text-slate-900">{it.area}</div>
-                                        <div className="text-xs text-slate-600 mt-0.5 font-mono-data">{it.current_value || "—"}</div>
-                                        {it.why_it_matters && (
-                                            <div className="text-xs text-slate-500 mt-1 leading-relaxed">{it.why_it_matters}</div>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* SLA delta prose */}
-                    {comp.sla_delta_summary && (
-                        <div className="border border-slate-200 rounded-lg p-4">
-                            <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-2">SLA changes summary</div>
-                            <p className="text-sm text-slate-700 leading-relaxed">{comp.sla_delta_summary}</p>
-                        </div>
-                    )}
                 </div>
             )}
         </div>

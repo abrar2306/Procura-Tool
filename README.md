@@ -1,8 +1,8 @@
 # Procura — AI-Powered IT Procurement Advisory Platform
 
-Procura replicates the workflow of an experienced IT Procurement Consultant. It automates commercial benchmarking, SLA review, contract risk analysis, and produces consulting-grade procurement recommendations — powered by Claude Sonnet 4.5.
+Procura replicates the workflow of an experienced IT Procurement Consultant. It automates commercial benchmarking, SLA review, contract risk analysis, and produces consulting-grade procurement recommendations.
 
-![Procura](https://img.shields.io/badge/stack-FastAPI%20%2B%20React%20%2B%20MongoDB-0A2540) ![AI](https://img.shields.io/badge/AI-Claude%20Sonnet%204.5-0066FF)
+![Procura](https://img.shields.io/badge/stack-FastAPI%20%2B%20React%20%2B%20MongoDB-0A2540) ![AI](https://img.shields.io/badge/AI-Powered-0066FF)
 
 ---
 
@@ -26,7 +26,7 @@ Procura replicates the workflow of an experienced IT Procurement Consultant. It 
 | Frontend  | React 19, Tailwind CSS, shadcn/ui, @phosphor-icons/react, sonner, framer-motion |
 | Backend   | FastAPI, Uvicorn, Motor (async MongoDB), Pydantic                          |
 | Database  | MongoDB                                                                    |
-| AI        | Claude Sonnet 4.5 (`claude-sonnet-4-5-20250929`) via `emergentintegrations` |
+| AI        | Generative AI — document extraction, benchmark matching, explanation (`google-genai` SDK) |
 | Doc Parse | pdfplumber, python-docx, openpyxl                                          |
 
 ---
@@ -67,9 +67,10 @@ Procura replicates the workflow of an experienced IT Procurement Consultant. It 
 ## 🚀 Local Setup
 
 ### Prerequisites
-- Node.js ≥ 18, Yarn ≥ 1.22
+- Node.js ≥ 18, Yarn ≥ 1.22 (or npm)
 - Python ≥ 3.10
-- MongoDB (local or Atlas connection string)
+- A Supabase project (or backend falls back to an in-memory store)
+- A generative AI API key (see Environment Variables)
 
 ### 1. Clone
 ```bash
@@ -84,13 +85,14 @@ pip install -r requirements.txt
 
 # Create .env
 cat > .env <<'EOF'
-MONGO_URL="mongodb://localhost:27017"
-DB_NAME="procura"
+SUPABASE_URL="https://<your-project>.supabase.co"
+SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
+GEMINI_API_KEY="<your-api-key>"
 CORS_ORIGINS="*"
-EMERGENT_LLM_KEY="sk-emergent-xxxxxxxxxxxx"
 EOF
 
-# Run
+# Run from the repo ROOT (not backend/), so `server` and `backend.*` resolve.
+cd ..
 uvicorn server:app --host 0.0.0.0 --port 8001 --reload
 ```
 
@@ -113,20 +115,22 @@ The app will be available at **http://localhost:3000**.
 
 ## 🔑 Environment Variables
 
-### Backend (`/backend/.env`)
-| Key                 | Purpose                                           |
-|---------------------|---------------------------------------------------|
-| `MONGO_URL`         | MongoDB connection string                         |
-| `DB_NAME`           | MongoDB database name                             |
-| `CORS_ORIGINS`      | Comma-separated allowed origins (or `*`)          |
-| `EMERGENT_LLM_KEY`  | Emergent Universal LLM key (Claude/OpenAI/Gemini) |
+### Backend (`backend/.env`)
+| Key                      | Purpose                                                  |
+|--------------------------|----------------------------------------------------------|
+| `SUPABASE_URL`           | Supabase project URL                                     |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role key (server-side only)          |
+| `SUPABASE_ANON_KEY`      | Supabase anon key (optional)                             |
+| `SUPABASE_STORAGE_BUCKET`| Storage bucket name for document uploads (default `procurement-documents`) |
+| `GEMINI_API_KEY`         | API key for AI extraction + explanation                  |
+| `CORS_ORIGINS`           | Comma-separated allowed origins (or `*` for local dev)   |
 
-### Frontend (`/frontend/.env`)
+### Frontend (`frontend/.env`)
 | Key                     | Purpose                                       |
 |-------------------------|-----------------------------------------------|
 | `REACT_APP_BACKEND_URL` | Backend base URL (must be reachable by browser) |
 
-> If not using Emergent, swap `EMERGENT_LLM_KEY` for your own Anthropic API key and adjust the `LlmChat` call in `server.py` to use the Anthropic SDK directly. Model name: `claude-sonnet-4-5-20250929`.
+> MongoDB is no longer used — the backend persists to **Supabase**. AI calls use the configured generative model. Apply the SQL in `backend/migrations/schema.sql` and create the Storage bucket on first Supabase setup; the app also falls back to an in-memory store when no Supabase credentials are set.
 
 ---
 
@@ -137,32 +141,39 @@ All routes are prefixed with `/api`.
 | Method | Path                                    | Description                                            |
 |--------|-----------------------------------------|--------------------------------------------------------|
 | GET    | `/api/`                                 | Health check                                           |
-| GET    | `/api/benchmarks`                       | Seeded resource cost benchmarks                        |
-| POST   | `/api/reviews`                          | Create a new procurement review                        |
-| GET    | `/api/reviews`                          | List all reviews                                       |
-| GET    | `/api/reviews/{id}`                     | Get a review with analysis + documents                 |
-| PATCH  | `/api/reviews/{id}`                     | Update `form_data` or `extracted_data`                 |
-| DELETE | `/api/reviews/{id}`                     | Delete a review                                        |
-| POST   | `/api/reviews/{id}/upload`              | Upload docs (multipart) + AI extraction                |
-| POST   | `/api/reviews/{id}/analyze`             | Trigger AI analysis (async — poll `GET /reviews/{id}`) |
-| POST   | `/api/reviews/{id}/chat`                | Chat with AI assistant (SSE stream)                    |
-| GET    | `/api/reviews/{id}/chat`                | Get chat history                                       |
+| GET    | `/api/requests`                         | List procurement requests                              |
+| POST   | `/api/requests`                         | Create a procurement request                           |
+| GET    | `/api/requests/{id}`                    | Get a request with documents + extracted items         |
+| PATCH  | `/api/requests/{id}`                    | Update request metadata / `form_data`                  |
+| DELETE | `/api/requests/{id}`                    | Delete a request                                       |
+| POST   | `/api/requests/{id}/documents`          | Upload documents (multipart, stored in Supabase Storage) |
+| POST   | `/api/requests/{id}/extract`            | Run AI extraction over uploaded documents                |
+| PATCH  | `/api/requests/{id}/items/{item_id}`    | Edit an extracted item                                 |
+| POST   | `/api/requests/{id}/analyze`            | Run benchmark matching + scoring + explanation         |
+| GET    | `/api/requests/{id}/analysis`           | Get the latest score result                            |
+| GET    | `/api/catalog/{kind}`                   | List benchmark catalog rows (software/hardware/resource) |
+| POST   | `/api/catalog/{kind}`                   | Add a catalog row                                      |
+| DELETE | `/api/catalog/{kind}/{row_id}`          | Delete a catalog row                                   |
+
+> **Not yet implemented in the backend** (frontend calls exist, but the routes return 404):
+> `POST/GET /api/requests/{id}/chat` (AI chat), `POST /api/reviews/{id}/compare` (proposal comparison),
+> `/api/benchmarks*` (resource-rate tab), and `/api/catalog/{kind}/import` (Excel import).
+
+### Request/status model
+Statuses flow: `draft` → `uploaded` → `extracting` → `ready_for_analysis` → `analyzing` → `analyzed` (or `failed`). The `GET /api/requests/{id}` response exposes `status`, `documents`, `documents_v2`, `extracted_items`, and `analysis`.
 
 ### Analysis flow
-Because Claude analysis takes 30–90 seconds, `POST /analyze` returns immediately with `status: "analyzing"`. The frontend polls `GET /reviews/{id}` every 4 seconds until `status` becomes `"analyzed"` or `"error"`.
-
-### Chat flow
-`POST /reviews/{id}/chat` returns `text/event-stream` with `data: {"delta": "..."}` chunks, terminating with `data: {"done": true}`. History is auto-persisted.
+`POST /analyze` is synchronous and returns `{"ok": true}`; re-fetch `GET /api/requests/{id}` (or `/analysis`) to read the score result.
 
 ---
 
 ## 🧠 Resource Benchmark Data
 
-Seeded in `backend/server.py` (`RESOURCE_BENCHMARKS`). 14 roles × 3 experience levels (junior/mid/senior) with monthly USD rates.
+Benchmark catalog rows live in Supabase tables (`resource_pricing`, `software_pricing`, `hardware_pricing`) and are managed via the **Benchmarks** page in the UI (or `backend/seed/seed_benchmarks.py`).
 
-**Vendor margin multiplier**: `1.55` (i.e., a fair vendor bill rate is ~155% of raw cost, covering overhead + margin).
-
-Tune these values in `server.py` to match your organization's internal benchmarks.
+- **Matching** is deterministic and rule-based (`backend/services/benchmark_matcher.py`): exact SKU / part number / role, alias, and attribute scoring.
+- **Scoring** (`backend/services/scoring.py`) blends price position, benchmark-match confidence, completeness, and arithmetic consistency into a 0–100 procurement score.
+- **Vendor margin multiplier** `1.55` (fair vendor bill rate ≈ 155% of raw cost) is a UI-level setting.
 
 ---
 
@@ -177,10 +188,10 @@ Tune these values in `server.py` to match your organization's internal benchmark
 
 ## 🛡️ Deployment Notes
 
-- Ensure your reverse proxy / ingress does **not** buffer SSE responses (backend sets `X-Accel-Buffering: no`).
-- The `/analyze` endpoint uses `asyncio.create_task` — safe on a single-worker Uvicorn; if you run multiple workers or use serverless, migrate to a proper background queue (Celery / Redis / etc.).
-- Set `CORS_ORIGINS` to your frontend origin(s) in production.
-- MongoDB indexes: create an index on `reviews.id` for faster lookups.
+- **Do not use multiple Uvicorn workers** without a background task queue — analysis runs synchronously inside the request. Scale with Celery/RQ if needed.
+- Set `CORS_ORIGINS` to your frontend origin(s) in production (see `render.yaml` for the Render wiring).
+- Apply `backend/migrations/schema.sql` to the Supabase project and create the `procurement-documents` Storage bucket.
+- Keep `SUPABASE_SERVICE_ROLE_KEY` server-side only; never expose it in the browser bundle.
 
 ---
 

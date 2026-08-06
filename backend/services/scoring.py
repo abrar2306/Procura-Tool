@@ -281,5 +281,12 @@ def aggregate_score(
 
     # deduplicate
     reason_codes = list(set(reason_codes))
+    seen = set()
+    unique_warnings = []
+    for w in all_warnings:
+        key = str(w).strip()
+        if key and key not in seen:
+            seen.add(key)
+            unique_warnings.append(w)
 
-    return overall_score, recommendation, breakdown, all_warnings, reason_codes
+    return overall_score, recommendation, breakdown, unique_warnings, reason_codes

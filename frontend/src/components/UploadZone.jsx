@@ -8,7 +8,7 @@ export default function UploadZone({
     onUploaded,
     uploadFn = uploadDocuments,
     title = "Drop procurement documents here",
-    subtitle = "PDF, DOCX, XLSX — SOW, MSA, SLA, proposals, pricing sheets",
+    subtitle = "SOW, MSA, SLA, proposals, pricing sheets",
     submitLabel = "Upload & extract",
     compact = false,
     testidPrefix = "upload",
@@ -16,18 +16,6 @@ export default function UploadZone({
     const [dragOver, setDragOver] = useState(false);
     const [files, setFiles] = useState([]);
     const [uploading, setUploading] = useState(false);
-
-    const onDrop = useCallback((e) => {
-        e.preventDefault();
-        setDragOver(false);
-        const dropped = Array.from(e.dataTransfer.files);
-        setFiles((prev) => [...prev, ...dropped]);
-    }, []);
-
-    const handlePick = (e) => {
-        const picked = Array.from(e.target.files || []);
-        setFiles((prev) => [...prev, ...picked]);
-    };
 
     const doUpload = async () => {
         if (!files.length) return;
@@ -44,6 +32,18 @@ export default function UploadZone({
         } finally {
             setUploading(false);
         }
+    };
+
+    const onDrop = useCallback((e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const dropped = Array.from(e.dataTransfer.files);
+        setFiles((prev) => [...prev, ...dropped]);
+    }, []);
+
+    const handlePick = (e) => {
+        const picked = Array.from(e.target.files || []);
+        setFiles((prev) => [...prev, ...picked]);
     };
 
     const zonePadding = compact ? "p-6" : "p-10";
@@ -63,14 +63,21 @@ export default function UploadZone({
                 <CloudArrowUp size={iconSize} weight="duotone" className="mx-auto text-slate-400" />
                 <div className={`mt-2 font-heading font-semibold text-slate-900 ${compact ? "text-sm" : ""}`}>{title}</div>
                 <div className="text-xs text-slate-500 mt-1">{subtitle}</div>
-                <label className="inline-block mt-3 cursor-pointer">
+                
+                <div className="flex flex-wrap justify-center gap-1.5 mt-3">
+                    {["PDF", "DOCX", "XLSX", "CSV", "TXT"].map(ext => (
+                        <span key={ext} className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 text-[10px] font-bold font-mono-data uppercase tracking-wider">{ext}</span>
+                    ))}
+                </div>
+
+                <label className="inline-block mt-4 cursor-pointer">
                     <span className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors">
                         Browse files
                     </span>
                     <input
                         type="file"
                         multiple
-                        accept=".pdf,.docx,.xlsx,.txt,.csv"
+                        accept=".pdf,.docx,.xlsx,.csv,.txt,.pptx,.ppt"
                         onChange={handlePick}
                         className="hidden"
                         data-testid={`${testidPrefix}-file-input`}
@@ -87,22 +94,31 @@ export default function UploadZone({
                                 <div className="text-sm font-medium text-slate-900 truncate">{f.name}</div>
                                 <div className="text-xs text-slate-500 font-mono-data">{(f.size / 1024).toFixed(1)} KB</div>
                             </div>
-                            <button
-                                onClick={() => setFiles(files.filter((_, idx) => idx !== i))}
-                                className="text-slate-400 hover:text-rose-600 transition-colors"
-                                data-testid={`${testidPrefix}-remove-file-${i}`}
-                            >
-                                <X size={16} />
-                            </button>
+                            {!uploading && (
+                                <button
+                                    onClick={() => setFiles(files.filter((_, idx) => idx !== i))}
+                                    className="text-slate-400 hover:text-rose-600 transition-colors"
+                                    data-testid={`${testidPrefix}-remove-file-${i}`}
+                                >
+                                    <X size={16} />
+                                </button>
+                            )}
                         </div>
                     ))}
                     <button
                         onClick={doUpload}
                         disabled={uploading}
                         data-testid={`${testidPrefix}-submit-button`}
-                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm font-medium py-2.5 rounded-md transition-colors"
+                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm font-medium py-2.5 rounded-md transition-colors flex justify-center items-center gap-2"
                     >
-                        {uploading ? "Extracting information with AI…" : `${submitLabel} (${files.length})`}
+                        {uploading ? (
+                            <>
+                                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                Extracting information with AI…
+                            </>
+                        ) : (
+                            `${submitLabel} (${files.length})`
+                        )}
                     </button>
                 </div>
             )}

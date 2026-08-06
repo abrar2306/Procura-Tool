@@ -26,6 +26,7 @@ export default function ReviewDetail() {
     const [analyzing, setAnalyzing] = useState(false);
     const [chatOpen, setChatOpen] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
     const load = React.useCallback(async () => {
         try {
@@ -101,10 +102,9 @@ export default function ReviewDetail() {
         } finally { setAnalyzing(false); }
     };
 
-    const hasInput = isForm
-        ? (Object.keys(review.form_data || {}).some((k) => review.form_data[k]) ||
-           (review.documents || []).length > 0)
-        : (review.documents || []).length > 0;
+    const hasExtractedItems = (review.extracted_items || review.extracted_data || []).length > 0;
+    const hasFormData = isForm && Object.keys(review.form_data || {}).some((k) => review.form_data[k]);
+    const canRunAnalysis = isForm ? (hasFormData || hasExtractedItems) : hasExtractedItems;
 
     return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -125,15 +125,17 @@ export default function ReviewDetail() {
                 <div className="flex items-center gap-2 shrink-0">
                     <button
                         data-testid="open-chat-button"
-                        onClick={() => setChatOpen(true)}
-                        className="inline-flex items-center gap-2 border border-slate-300 hover:bg-slate-50 text-sm font-medium px-4 py-2 rounded-md text-slate-700"
+                        disabled
+                        title="Feature coming soon"
+                        className="inline-flex items-center gap-2 border border-slate-300 bg-slate-50 text-sm font-medium px-4 py-2 rounded-md text-slate-400 cursor-not-allowed"
                     >
                         <ChatCircleDots size={16} /> AI Assistant
                     </button>
                     <button
                         data-testid="run-analysis-button"
                         onClick={runAnalysis}
-                        disabled={analyzing || !hasInput}
+                        disabled={analyzing || !canRunAnalysis}
+                        title={!canRunAnalysis ? "Extract documents first" : ""}
                         className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm font-medium px-4 py-2 rounded-md"
                     >
                         <Sparkle size={16} weight="fill" /> {analyzing ? "Analyzing…" : review.analysis ? "Re-run analysis" : "Run AI analysis"}
@@ -218,26 +220,8 @@ export default function ReviewDetail() {
                             </div>
                         </div>
                     ) : (
-                        <div className="grid lg:grid-cols-3 gap-6">
-                            <div className="lg:col-span-2">
-                                <UploadZone reviewId={id} onUploaded={(r) => { setReview(r); setTab("extracted"); toast.success("Data extracted"); }} />
-                            </div>
-                            <div className="border border-slate-200 rounded-lg bg-white p-5">
-                                <div className="font-heading font-semibold text-slate-900 mb-2">Uploaded documents</div>
-                                {(review.documents || []).length === 0 ? (
-                                    <div className="text-xs text-slate-500">No documents uploaded yet.</div>
-                                ) : (
-                                    <ul className="space-y-2">
-                                        {review.documents.map((d) => (
-                                            <li key={d.id} className="flex items-center gap-2 text-sm">
-                                                <FileText size={14} className="text-slate-400" />
-                                                <span className="text-slate-800 truncate flex-1">{d.filename}</span>
-                                                <span className="text-[10px] text-slate-400 font-mono-data">{(d.size / 1024).toFixed(0)}KB</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </div>
+                        <div className="max-w-3xl mx-auto">
+                            <UploadZone reviewId={id} onUploaded={(r) => { setReview(r); setTab("extracted"); toast.success("Data extracted"); }} />
                         </div>
                     )}
                 </div>
@@ -252,8 +236,9 @@ export default function ReviewDetail() {
                                 <div className="text-xs text-slate-500 mt-0.5">AI-extracted information. Review and correct before analysis.</div>
                             </div>
                             <button
-                                onClick={() => saveExtracted(review.extracted_data || {}).then(() => toast.success("Saved"))}
-                                className="text-xs font-medium border border-slate-300 hover:bg-slate-50 px-3 py-1.5 rounded-md"
+                                onClick={() => saveExtracted(review.extracted_data || {}).then(() => setHasUnsavedChanges(false))}
+                                disabled={!hasUnsavedChanges || saving}
+                                className="text-xs font-medium border border-slate-300 hover:bg-slate-50 disabled:bg-slate-50 disabled:text-slate-400 px-3 py-1.5 rounded-md transition-colors"
                                 data-testid="save-extracted-button"
                             >
                                 Save changes
@@ -261,7 +246,10 @@ export default function ReviewDetail() {
                         </div>
                         <ExtractedDataEditor
                             data={review.extracted_data || {}}
-                            onChange={(d) => setReview({ ...review, extracted_data: d })}
+                            onChange={(d) => {
+                                setReview({ ...review, extracted_data: d });
+                                setHasUnsavedChanges(true);
+                            }}
                             procurementType={review.procurement_type}
                         />
                     </div>
@@ -272,7 +260,7 @@ export default function ReviewDetail() {
                 <div className="animate-step space-y-6">
                     {review.analysis ? (
                         <>
-                            <AnalysisReport analysis={review.analysis} />
+                            <AnalysisReport analysis={review.analysis} items={review.extracted_data || review.extracted_items || []} />
                             {/* Proposal comparison — only for document-driven categories (services / hardware support) */}
                             {!isForm && (
                                 <ProposalComparison review={review} onReviewUpdate={setReview} />
@@ -287,7 +275,7 @@ export default function ReviewDetail() {
                             </div>
                             <button
                                 onClick={runAnalysis}
-                                disabled={analyzing || !hasInput}
+                                disabled={analyzing || !canRunAnalysis}
                                 data-testid="empty-run-analysis"
                                 className="mt-5 inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm font-medium px-5 py-2.5 rounded-md"
                             >

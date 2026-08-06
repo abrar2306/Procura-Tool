@@ -1,5 +1,6 @@
 import io
 import logging
+import traceback
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -7,6 +8,19 @@ logger = logging.getLogger(__name__)
 
 def extract_text_from_file(filename: str, filepath: str) -> str:
     name = filename.lower()
+    
+    # 1. Try anydoc (primary parser)
+    try:
+        import anydoc
+        logger.info(f"Using anydoc to parse {filename}")
+        markdown = anydoc.to_markdown(filepath)
+        if markdown and markdown.strip():
+            return markdown
+    except Exception as e:
+        logger.warning(f"anydoc failed or unavailable for {filename}: {e}. Falling back to legacy parsers.")
+        logger.debug(traceback.format_exc())
+    
+    # 2. Legacy fallback parsers
     try:
         if name.endswith(".pdf"):
             import pdfplumber
@@ -38,6 +52,16 @@ def extract_text_from_file(filename: str, filepath: str) -> str:
                     if row_txt.strip():
                         lines.append(row_txt)
             return "\n".join(lines)
+        elif name.endswith(".pptx") or name.endswith(".ppt"):
+            from pptx import Presentation
+            
+            prs = Presentation(filepath)
+            text_runs = []
+            for slide in prs.slides:
+                for shape in slide.shapes:
+                    if hasattr(shape, "text"):
+                        text_runs.append(shape.text)
+            return "\n".join(text_runs)
         elif name.endswith(".txt") or name.endswith(".csv"):
             with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
                 return f.read()

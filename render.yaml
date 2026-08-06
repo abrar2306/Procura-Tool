@@ -1,0 +1,38 @@
+services:
+  # Backend API Service
+  - type: web
+    name: procura-backend
+    env: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: procurement-documents
+      - key: CORS_ORIGINS
+        fromService:
+          type: web
+          name: procura-frontend
+          envVarKey: RENDER_EXTERNAL_URL
+
+  # Frontend Static Site
+  - type: web
+    name: procura-frontend
+    env: static
+    rootDir: frontend
+    buildCommand: bash ./build.sh
+    staticPublishPath: ./build
+    envVars:
+      - key: REACT_APP_BACKEND_URL
+        fromService:
+          type: web
+          name: procura-backend
+          envVarKey: RENDER_EXTERNAL_URL

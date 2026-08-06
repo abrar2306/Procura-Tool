@@ -6,6 +6,14 @@ export const API = `${BACKEND_URL}/api`;
 
 export const api = axios.create({ baseURL: API });
 
+api.interceptors.request.use((config) => {
+    const customKey = localStorage.getItem("customGeminiKey");
+    if (customKey) {
+        config.headers["X-Gemini-Api-Key"] = customKey;
+    }
+    return config;
+});
+
 api.interceptors.response.use(
     (response) => response,
     (error) => {
@@ -73,13 +81,19 @@ export const uploadDocuments = async (id, files) => {
 };
 export const uploadDocumentsV2 = uploadDocuments; // use same logic
 
-export const compareProposals = (id) => api.post(`/reviews/${id}/compare`).then((r) => r.data);
+export const compareProposals = (id) => api.post(`/requests/${id}/compare`).then((r) => r.data);
 
 export async function streamChat(reviewId, message, onDelta, onDone, onError) {
     try {
+        const customKey = localStorage.getItem("customGeminiKey");
+        const headers = { "Content-Type": "application/json" };
+        if (customKey) {
+            headers["X-Gemini-Api-Key"] = customKey;
+        }
+
         const res = await fetch(`${API}/requests/${reviewId}/chat`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers,
             body: JSON.stringify({ message }),
         });
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);

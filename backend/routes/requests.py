@@ -89,11 +89,13 @@ def review_view(record: dict[str, Any]) -> dict[str, Any]:
     result["category"] = result["review_category"]
     result["form_data"] = result.get("form_data") or {}
     docs = [_document_view(d) for d in result.get("documents", [])]
-    result["documents"] = [d for d in docs if int(d.get("proposal_version") or 1) == 1]
+    result["documents"] = [d for d in docs if int(d.get("document_version") or 1) == 1]
     result["documents_v2"] = [
-        d for d in docs if int(d.get("proposal_version") or 1) > 1
+        d for d in docs if int(d.get("document_version") or 1) > 1
     ]
-    result["extracted_items"] = result.get("extracted_items") or []
+    all_items = result.get("extracted_items") or []
+    result["extracted_items"] = [i for i in all_items if int(i.get("document_version") or 1) == 1]
+    result["extracted_items_v2"] = [i for i in all_items if int(i.get("document_version") or 1) > 1]
     result["extracted_data"] = result["extracted_items"]
     if not result.get("analysis") and result.get("score_results"):
         result["analysis"] = sorted(
@@ -192,7 +194,7 @@ async def create_request(
     request_id = str(uuid.uuid4())
     record = {
         "id": request_id,
-        "title": payload.title,
+        "title": payload.title or f"{payload.category.value.title()} Procurement Review",
         "category": payload.category.value,
         "procurement_type": payload.procurement_type,
         "review_category": payload.review_category,
@@ -209,6 +211,7 @@ async def create_request(
     db = get_db()
     if not db:
         local_store.requests[request_id] = local_store.clone(record)
+        local_store.save()
         return review_view(_local_review_or_404(request_id))
     try:
         result = (
@@ -278,6 +281,7 @@ async def update_request(
         if not record or record["organization_id"] != x_org_id:
             raise HTTPException(404, "Request not found")
         record.update(updates)
+        local_store.save()
         return review_view(_local_review_or_404(request_id))
     try:
         result = (
@@ -307,6 +311,7 @@ async def delete_request(request_id: str, x_org_id: str = Header("default-org"))
         local_store.documents.pop(request_id, None)
         local_store.items.pop(request_id, None)
         local_store.messages.pop(request_id, None)
+        local_store.save()
         return {"ok": True}
     try:
         result = (
@@ -345,7 +350,7 @@ async def upload_document(
             "file_name": upload.filename,
             "mime_type": upload.content_type,
             "file_size_bytes": len(contents),
-            "proposal_version": version,
+            "document_version": version,
             "created_at": now(),
         }
         if db:
@@ -365,10 +370,11 @@ async def upload_document(
                 raise HTTPException(
                     500, f"Unable to store {upload.filename}: {exc}"
                 ) from exc
-        else:
-            doc["storage_path"] = doc["id"]
-            local_store.files[doc["id"]] = contents
-            local_store.documents[request_id].append(doc)
+    else:
+        doc["storage_path"] = doc["id"]
+        local_store.files[doc["id"]] = contents
+        local_store.documents[request_id].append(doc)
+        local_store.save()
         documents.append(_document_view(doc))
     if db:
         db.table("procurement_requests").update(
@@ -376,11 +382,12 @@ async def upload_document(
         ).eq("id", request_id).eq("organization_id", x_org_id).execute()
     else:
         local_store.requests[request_id]["status"] = RequestStatus.UPLOADED.value
+        local_store.save()
     return {"ok": True, "documents": documents}
 
 
 def _fallback_item(
-    request_id: str, document_id: str, filename: str, text: str, category: str
+    request_id: str, document_id: str, filename: str, text: str, category: str, document_version: int = 1
 ) -> dict[str, Any]:
     # A usable deterministic fallback for textual documents when no AI key is
     # configured. It avoids fabricating commercial values.
@@ -391,6 +398,7 @@ def _fallback_item(
         "id": str(uuid.uuid4()),
         "request_id": request_id,
         "document_id": document_id,
+        "document_version": document_version,
         "category": category,
         "raw_description": description[:1000],
         "normalized_description": description[:1000],
@@ -401,10 +409,18 @@ def _fallback_item(
 
 
 @router.post("/{request_id}/extract")
-async def extract_data(request_id: str, x_org_id: str = Header("default-org")):
+async def extract_data(
+    request_id: str, 
+    x_org_id: str = Header("default-org"),
+    x_gemini_api_key: Optional[str] = Header(None, alias="X-Gemini-Api-Key")
+):
     request = get_review_record(request_id, x_org_id)
     db = get_db()
-    documents = request.get("documents", []) + request.get("documents_v2", [])
+    
+    docs_v2 = request.get("documents_v2", [])
+    doc_version = 2 if docs_v2 else 1
+    documents = docs_v2 if docs_v2 else request.get("documents", [])
+    
     if not documents:
         raise HTTPException(400, "No documents found for request")
     if db:
@@ -413,6 +429,7 @@ async def extract_data(request_id: str, x_org_id: str = Header("default-org")):
         ).eq("id", request_id).execute()
     else:
         local_store.requests[request_id]["status"] = RequestStatus.EXTRACTING.value
+        local_store.save()
     records: list[dict[str, Any]] = []
     for document in documents:
         temp_path = None
@@ -422,7 +439,9 @@ async def extract_data(request_id: str, x_org_id: str = Header("default-org")):
                     document["storage_path"]
                 )
             else:
-                raw = local_store.files[document["id"]]
+                raw = local_store.files.get(document["id"])
+                if raw is None:
+                    continue
             with tempfile.NamedTemporaryFile(
                 delete=False, suffix=os.path.splitext(document["file_name"])[1]
             ) as temp:
@@ -430,7 +449,7 @@ async def extract_data(request_id: str, x_org_id: str = Header("default-org")):
                 temp_path = temp.name
             text = extract_text_from_file(document["file_name"], temp_path)
             ai_items = (
-                extract_procurement_data(f"### FILE: {document['file_name']}\n{text}")
+                extract_procurement_data(f"### FILE: {document['file_name']}\n{text}", custom_api_key=x_gemini_api_key)
                 if text
                 else []
             )
@@ -442,6 +461,7 @@ async def extract_data(request_id: str, x_org_id: str = Header("default-org")):
                         document["file_name"],
                         text,
                         request.get("procurement_category") or request.get("category"),
+                        document_version=doc_version
                     )
                 )
             for item in ai_items:
@@ -450,6 +470,7 @@ async def extract_data(request_id: str, x_org_id: str = Header("default-org")):
                 item = normalize_item(item)
                 record = item.model_dump(exclude_none=True)
                 record["id"] = record.get("id") or str(uuid.uuid4())
+                record["document_version"] = doc_version
                 for field in ("category", "billing_unit"):
                     if getattr(record.get(field), "value", None):
                         record[field] = record[field].value
@@ -459,7 +480,7 @@ async def extract_data(request_id: str, x_org_id: str = Header("default-org")):
                 os.unlink(temp_path)
     if db:
         try:
-            db.table("extracted_items").delete().eq("request_id", request_id).execute()
+            db.table("extracted_items").delete().eq("request_id", request_id).eq("document_version", doc_version).execute()
             if records:
                 db.table("extracted_items").insert(records).execute()
             db.table("procurement_requests").update(
@@ -471,10 +492,11 @@ async def extract_data(request_id: str, x_org_id: str = Header("default-org")):
             ).eq("id", request_id).execute()
             raise HTTPException(500, f"Extraction failed: {exc}") from exc
     else:
-        local_store.items[request_id] = records
+        local_store.items[request_id] = [i for i in local_store.items.get(request_id, []) if int(i.get("document_version") or 1) != doc_version] + records
         local_store.requests[request_id][
             "status"
         ] = RequestStatus.READY_FOR_ANALYSIS.value
+        local_store.save()
     return review_view(get_review_record(request_id, x_org_id))
 
 
@@ -495,6 +517,7 @@ async def update_item(
         for item in local_store.items[request_id]:
             if item["id"] == item_id:
                 item.update(updates)
+                local_store.save()
                 return item
         raise HTTPException(404, "Item not found")
     try:

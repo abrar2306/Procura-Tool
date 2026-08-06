@@ -7,18 +7,14 @@ This guide will help you start the Procura application on your computer. You wil
 The backend is the brain of the application (written in Python). 
 
 1. Open a terminal (Command Prompt or PowerShell).
-2. Navigate to the project folder where `Procura-Tool` is located.
-3. Go into the `backend` folder by typing:
-   ```cmd
-   cd backend
-   ```
-4. Run the following command to start the backend server:
+2. Navigate to the **project root** folder where `Procura-Tool` is located (this is important — the server is imported as `server`, which resolves from the repo root).
+3. Run the following command to start the backend server:
    ```cmd
    python -m uvicorn server:app --host 0.0.0.0 --port 8001 --reload
    ```
    *(Note: Make sure you have installed the required Python packages first using `pip install -r requirements.txt` if this is your first time setting it up).*
 
-5. Keep this terminal window open and running. You should see a message saying "Application startup complete".
+4. Keep this terminal window open and running. You should see a message saying "Application startup complete".
 
 ---
 
@@ -34,11 +30,17 @@ The frontend is the user interface you interact with in your browser.
    ```
 4. Run the following command to start the frontend interface:
    ```cmd
-   yarn start
+   npm start
    ```
-   *(Note: If you don't have yarn installed, you can use `npm start`. If it's your first time, remember to run `yarn install` or `npm install` first to install dependencies).*
+   *(Note: `yarn start` also works if your Yarn version matches the lockfile. If it's your first time, run `npm install` first to install dependencies).*
 
-5. Keep this terminal window open too. The application should automatically open in your default web browser at `http://localhost:3000`.
+5. Make sure the backend port matches what the frontend calls. If the backend runs on `8001`, create a `frontend/.env` file containing:
+   ```
+   REACT_APP_BACKEND_URL=http://localhost:8001
+   ```
+   (Without it the frontend defaults to `http://localhost:8000`.)
+
+6. Keep this terminal window open too. The application should automatically open in your default web browser at `http://localhost:3000`.
 
 ---
 
