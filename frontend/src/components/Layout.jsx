@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Buildings, ChartLineUp, FilePlus, Gavel, Gear, Key, X, CheckCircle, CircleNotch, Eraser } from "@phosphor-icons/react";
+import { Buildings, ChartLineUp, FilePlus, Gavel, Gear, Key, X, CheckCircle, CircleNotch, Eraser, Files } from "@phosphor-icons/react";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "./ui/DropdownMenu";
 import { toast } from "sonner";
 
@@ -87,7 +87,7 @@ export default function Layout({ children }) {
                 <nav className="flex-1 px-3 py-4 space-y-1">
                     <div className="px-3 pb-2 text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Workspace</div>
                     <NavItem to="/" icon={ChartLineUp} label="Dashboard" active={path === "/"} />
-                    <NavItem to="/review/new" icon={FilePlus} label="New Review" active={path === "/review/new"} />
+                    <NavItem to="/reviews" icon={Files} label="Reviews" active={path === "/reviews"} />
                 </nav>
 
                 <div className="mt-auto px-3 py-4 border-t border-slate-200">

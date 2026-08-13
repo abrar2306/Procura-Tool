@@ -1,6 +1,7 @@
 import re
 from typing import Dict, Any, Optional
 from backend.models.extraction import ExtractedItem
+from backend.services.product_name_formatter import format_product_name
 
 ROLE_ALIASES = {
     "dotnet developer": [
@@ -62,9 +63,15 @@ def normalize_currency(currency: Optional[str]) -> Optional[str]:
 
 
 def normalize_item(item: ExtractedItem) -> ExtractedItem:
-    # We do not discard the original extracted value, we set normalized_description
-    if item.raw_description:
-        item.normalized_description = normalize_string(item.raw_description)
+    # For hardware, use industry-standard casing formatter on the description
+    if item.category and str(item.category).upper() == "HARDWARE":
+        if item.normalized_description:
+            item.normalized_description = format_product_name(item.normalized_description)
+        elif item.raw_description:
+            item.normalized_description = format_product_name(item.raw_description)
+    elif not item.normalized_description and item.raw_description:
+        # For non-hardware: simple strip as fallback
+        item.normalized_description = item.raw_description.strip()
 
     if item.role_name:
         # Example requirement: Canonical result: "dotnet developer"

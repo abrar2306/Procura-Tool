@@ -3,9 +3,9 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Toaster } from "sonner";
 import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
+import Reviews from "@/pages/Reviews";
 import NewReview from "@/pages/NewReview";
 import ReviewDetail from "@/pages/ReviewDetail";
-import Benchmarks from "@/pages/Benchmarks";
 import NotFound from "@/pages/NotFound";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
@@ -17,9 +17,9 @@ function App() {
                     <ErrorBoundary>
                         <Routes>
                             <Route path="/" element={<Dashboard />} />
+                            <Route path="/reviews" element={<Reviews />} />
                             <Route path="/review/new" element={<NewReview />} />
                             <Route path="/review/:id" element={<ReviewDetail />} />
-                            <Route path="/benchmarks" element={<Benchmarks />} />
                             <Route path="*" element={<NotFound />} />
                         </Routes>
                     </ErrorBoundary>

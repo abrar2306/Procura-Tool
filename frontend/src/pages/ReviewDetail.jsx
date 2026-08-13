@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { getReview, updateReview, analyzeReview } from "../lib/api";
+import { getReview, updateReview, analyzeReview, deleteDocument } from "../lib/api";
 import { findCategory, CATEGORY_LABELS } from "../lib/categories";
 import { toast } from "sonner";
 import { ArrowLeft, ChatCircleDots, FileText, Sparkle, Gauge, ShieldCheck, Warning, Cube } from "@phosphor-icons/react";
 import UploadZone from "../components/UploadZone";
-import LicenseSkuForm from "../components/LicenseSkuForm";
 import ExtractedDataEditor from "../components/ExtractedDataEditor";
 import AnalysisReport from "../components/AnalysisReport";
 import ChatSidebar from "../components/ChatSidebar";
 import ProposalComparison from "../components/ProposalComparison";
+import AnalysisControls from "../components/AnalysisControls";
 
 const TAB_LIST = [
     { id: "input", label: "Input", icon: FileText },
@@ -27,6 +27,7 @@ export default function ReviewDetail() {
     const [chatOpen, setChatOpen] = useState(false);
     const [saving, setSaving] = useState(false);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+    const [deepSearch, setDeepSearch] = useState(false);
 
     const load = React.useCallback(async () => {
         try {
@@ -41,19 +42,22 @@ export default function ReviewDetail() {
 
     useEffect(() => { load(); }, [load]);
 
+    const handleDeleteDocument = async (documentId) => {
+        if (!window.confirm("Are you sure you want to delete this document and all its extracted data?")) return;
+        try {
+            await deleteDocument(id, documentId);
+            toast.success("Document and its data deleted");
+            load(); // Reload to get fresh documents and extracted items
+        } catch (e) {
+            toast.error("Failed to delete document: " + (e.message || "Unknown error"));
+        }
+    };
+
     if (loading) return <div className="p-10 text-slate-500">Loading…</div>;
     if (!review) return <div className="p-10 text-slate-500">Review not found.</div>;
 
-    const cat = findCategory(review.procurement_type, review.category);
-    const isForm = cat?.workflow === "form";
+    const cat = findCategory(review.category);
 
-    const saveForm = async (formData) => {
-        setSaving(true);
-        try {
-            const r = await updateReview(id, { form_data: formData });
-            setReview(r);
-        } finally { setSaving(false); }
-    };
     const saveExtracted = async (extracted) => {
         setSaving(true);
         try {
@@ -77,9 +81,9 @@ export default function ReviewDetail() {
 
     const runAnalysis = async () => {
         setAnalyzing(true);
-        toast.info("Running AI procurement analysis… (this can take ~30-60s)");
+        toast.info(deepSearch ? "Running deep search AI analysis… (this can take ~30-60s)" : "Running AI procurement analysis… (this can take ~10-20s)");
         try {
-            await analyzeReview(id);
+            await analyzeReview(id, deepSearch);
             // Poll until status changes from 'analyzing'
             const deadline = Date.now() + 3 * 60 * 1000;
             let finalReview = null;
@@ -103,8 +107,7 @@ export default function ReviewDetail() {
     };
 
     const hasExtractedItems = (review.extracted_items || review.extracted_data || []).length > 0;
-    const hasFormData = isForm && Object.keys(review.form_data || {}).some((k) => review.form_data[k]);
-    const canRunAnalysis = isForm ? (hasFormData || hasExtractedItems) : hasExtractedItems;
+    const canRunAnalysis = hasExtractedItems;
 
     return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -166,64 +169,14 @@ export default function ReviewDetail() {
 
             {tab === "input" && (
                 <div className="animate-step">
-                    {isForm ? (
-                        <div className="space-y-4">
-                            {/* Auto-fill from documents (optional) */}
-                            <div className="border border-blue-200 bg-blue-50/40 rounded-lg p-5">
-                                <div className="flex items-center justify-between mb-3">
-                                    <div>
-                                        <div className="font-heading font-semibold text-slate-900">Auto-fill from a document</div>
-                                        <div className="text-xs text-slate-500 mt-0.5">
-                                            Upload a vendor quote, license order form, or pricing PDF/Word/Excel — Procura extracts the fields and pre-fills the form below.
-                                        </div>
-                                    </div>
-                                </div>
-                                <UploadZone
-                                    reviewId={id}
-                                    onUploaded={(r) => { setReview(r); toast.success("Form auto-filled from document"); }}
-                                    title="Drop a quote, PO, or license order form"
-                                    subtitle="PDF, DOCX, XLSX, CSV, TXT — fields already filled won't be overwritten"
-                                    submitLabel="Extract & auto-fill"
-                                    compact
-                                    testidPrefix="upload-autofill"
-                                />
-                            </div>
-
-                            <div className="border border-slate-200 rounded-lg bg-white p-6">
-                                <div className="mb-4 flex items-center justify-between">
-                                    <div>
-                                        <div className="font-heading font-semibold text-slate-900">Commercial form</div>
-                                        <div className="text-xs text-slate-500 mt-0.5">Fill in the procurement details to run AI analysis</div>
-                                    </div>
-                                    <button
-                                        onClick={() => saveForm(review.form_data || {})}
-                                        className="text-xs font-medium border border-slate-300 hover:bg-slate-50 px-3 py-1.5 rounded-md"
-                                        data-testid="save-form-button"
-                                    >
-                                        Save draft
-                                    </button>
-                                </div>
-                                <LicenseSkuForm
-                                    data={review.form_data || {}}
-                                    onChange={(fd) => setReview({ ...review, form_data: fd })}
-                                    procurementType={review.procurement_type}
-                                />
-                                <div className="mt-4 pt-4 border-t border-slate-100 flex justify-end">
-                                    <button
-                                        onClick={() => saveForm(review.form_data || {}).then(() => toast.success("Saved"))}
-                                        className="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md"
-                                        data-testid="save-and-analyze-button"
-                                    >
-                                        Save
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="max-w-3xl mx-auto">
-                            <UploadZone reviewId={id} onUploaded={(r) => { setReview(r); setTab("extracted"); toast.success("Data extracted"); }} />
-                        </div>
-                    )}
+                    <div className="max-w-3xl mx-auto">
+                        <UploadZone 
+                            reviewId={id} 
+                            existingDocuments={review.documents}
+                            onDeleteDocument={handleDeleteDocument}
+                            onUploaded={(r) => { setReview(r); setTab("extracted"); toast.success("Data extracted"); }} 
+                        />
+                    </div>
                 </div>
             )}
 
@@ -250,7 +203,6 @@ export default function ReviewDetail() {
                                 setReview({ ...review, extracted_data: d });
                                 setHasUnsavedChanges(true);
                             }}
-                            procurementType={review.procurement_type}
                         />
                     </div>
                 </div>
@@ -258,6 +210,15 @@ export default function ReviewDetail() {
 
             {tab === "analysis" && (
                 <div className="animate-step space-y-6">
+                    {review.category === "HARDWARE" && (
+                        <AnalysisControls
+                            reviewId={id}
+                            deepSearch={deepSearch}
+                            setDeepSearch={setDeepSearch}
+                            onRunAnalysis={runAnalysis}
+                            analyzing={analyzing}
+                        />
+                    )}
                     {review.analysis ? (
                         <>
                             <AnalysisReport analysis={review.analysis} items={review.extracted_data || review.extracted_items || []} />

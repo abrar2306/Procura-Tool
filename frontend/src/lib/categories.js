@@ -1,22 +1,36 @@
-export const PROCUREMENT_TYPES = [
-    { id: "software", label: "Software Procurement", desc: "Licenses, SaaS, cloud services, professional services" },
-    { id: "hardware", label: "Hardware Procurement", desc: "Servers, networking, endpoint devices, hardware support" },
+export const CATEGORIES = [
+    {
+        id: "hardware",
+        backendCategory: "HARDWARE",
+        label: "Hardware",
+        desc: "Servers, networking gear, end-user devices, peripherals, and support renewals.",
+        icon: "Cube",
+        workflow: "document",
+        enabled: true,
+    },
+    {
+        id: "services",
+        backendCategory: "RESOURCE",
+        label: "Services",
+        desc: "IT consulting, managed services, professional services, and SOW-based engagements.",
+        icon: "FileText",
+        workflow: "document",
+        enabled: false,
+    },
+    {
+        id: "software",
+        backendCategory: "SOFTWARE",
+        label: "Software",
+        desc: "SaaS subscriptions, perpetual licenses, and software maintenance agreements.",
+        icon: "Package",
+        workflow: "document",
+        enabled: false,
+    },
 ];
 
-export const CATEGORIES = {
-    software: [
-        { id: "license_sku", label: "License / SKU Procurement", workflow: "form" },
-        { id: "services", label: "Services", workflow: "documents" },
-    ],
-    hardware: [
-        { id: "hardware_product", label: "Hardware Product", workflow: "form" },
-        { id: "hardware_support", label: "Hardware Support", workflow: "documents" },
-    ],
-};
-
-export const CATEGORY_LABELS = Object.values(CATEGORIES).flat().reduce((acc, c) => {
+export const CATEGORY_LABELS = CATEGORIES.reduce((acc, c) => {
     acc[c.id] = c.label;
     return acc;
 }, {});
 
-export const findCategory = (type, id) => (CATEGORIES[type] || []).find((c) => c.id === id);
+export const findCategory = (id) => CATEGORIES.find((c) => c.id === id) || CATEGORIES.find((c) => c.backendCategory === id);

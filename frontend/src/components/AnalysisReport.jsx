@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { formatProductName } from "../lib/formatProductName";
 import {
     CheckCircle,
     Warning,
@@ -24,6 +25,8 @@ import {
 } from "@phosphor-icons/react";
 import PriceGauge from "./PriceGauge";
 import CountUp from "react-countup";
+import SourcePills from "./SourcePills";
+import SourceDetailPanel from "./SourceDetailPanel";
 
 /* ──────────────────────────────────────────────
    CONSTANTS & HELPERS
@@ -167,6 +170,7 @@ function BreakdownBar({ dimensionKey, score, maximum }) {
 export default function AnalysisReport({ analysis: data, items: propItems }) {
     const [methodologyOpen, setMethodologyOpen] = useState(false);
     const [lineItemsExpanded, setLineItemsExpanded] = useState(false);
+    const [selectedSourceItem, setSelectedSourceItem] = useState(null);
 
     if (!data) return null;
 
@@ -177,7 +181,7 @@ export default function AnalysisReport({ analysis: data, items: propItems }) {
     const negotiationActions = data.negotiation_actions || [];
     const flags = data.flags || data.warnings || [];
     const reasonCodes = data.reason_codes || [];
-    const items = data.items || propItems || [];
+    const items = data.analysis_payload?.items || data.items || propItems || [];
     const scoreVersion = data.score_version || "";
 
     const tier = getTier(overallScore);
@@ -524,7 +528,7 @@ export default function AnalysisReport({ analysis: data, items: propItems }) {
                                             <tr key={idx} className="hover:bg-slate-50/50 transition-colors group" data-testid={`line-item-${idx}`}>
                                                 <td className="py-4 px-6 align-top">
                                                     <div className="flex flex-col gap-1.5">
-                                                        <div className="font-semibold text-slate-900 text-[13px] leading-snug">{name}</div>
+                                                        <div className="font-semibold text-slate-900 text-[13px] leading-snug">{formatProductName(name)}</div>
                                                         <div className="flex items-center gap-2 flex-wrap">
                                                             {extracted.category && (
                                                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider font-semibold bg-slate-100 text-slate-500">
@@ -562,7 +566,7 @@ export default function AnalysisReport({ analysis: data, items: propItems }) {
                                                         <div className="w-full">
                                                             <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono-data mb-1.5">
                                                                 <span title="Benchmark Low">L {benchmark.benchmark_low?.toLocaleString() || "—"}</span>
-                                                                <span title="Benchmark Median" className="font-bold text-slate-500">M {benchmark.benchmark_median.toLocaleString()}</span>
+                                                                <span title="Market Price" className="font-bold text-slate-500">M {benchmark.benchmark_median.toLocaleString()}</span>
                                                                 <span title="Benchmark High">H {benchmark.benchmark_high?.toLocaleString() || "—"}</span>
                                                             </div>
                                                             <PriceGauge
@@ -573,14 +577,24 @@ export default function AnalysisReport({ analysis: data, items: propItems }) {
                                                                 vendor={unitPrice}
                                                                 compact={true}
                                                             />
-                                                            <div className="text-[10px] font-medium text-slate-400 mt-2 flex items-center gap-1">
-                                                                <CheckCircle size={12} weight="fill" className="text-emerald-500" />
-                                                                {benchmark.match_confidence || 0}% match via {benchmark.match_method?.replace(/_/g, " ").toLowerCase() || "unknown"}
+                                                            <div className="text-[10px] font-medium text-slate-400 mt-2 flex flex-col gap-1.5">
+                                                                <div className="flex items-center gap-1">
+                                                                    <CheckCircle size={12} weight="fill" className="text-emerald-500" />
+                                                                    {benchmark.match_confidence || 0}% match via {benchmark.match_method?.replace(/_/g, " ").toLowerCase() || "unknown"}
+                                                                </div>
+                                                                {benchmark.sources && benchmark.sources.length > 0 && (
+                                                                    <div className="mt-1">
+                                                                        <SourcePills 
+                                                                            sources={benchmark.sources} 
+                                                                            onClick={() => setSelectedSourceItem({ extracted: extracted, benchmark: benchmark })} 
+                                                                        />
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     ) : (
                                                         <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500 bg-slate-50 px-2 py-1 rounded-md border border-slate-200">
-                                                            <Info size={12} /> No benchmark match
+                                                            <Info size={12} /> No market data found
                                                         </span>
                                                     )}
                                                 </td>
@@ -683,6 +697,13 @@ export default function AnalysisReport({ analysis: data, items: propItems }) {
                     </div>
                 )}
             </div>
+            
+            <SourceDetailPanel 
+                isOpen={!!selectedSourceItem}
+                onClose={() => setSelectedSourceItem(null)}
+                item={selectedSourceItem?.extracted}
+                sources={selectedSourceItem?.benchmark?.sources}
+            />
         </div>
     );
 }

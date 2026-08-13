@@ -12,6 +12,8 @@ export default function UploadZone({
     submitLabel = "Upload & extract",
     compact = false,
     testidPrefix = "upload",
+    existingDocuments = [],
+    onDeleteDocument,
 }) {
     const [dragOver, setDragOver] = useState(false);
     const [files, setFiles] = useState([]);
@@ -120,6 +122,32 @@ export default function UploadZone({
                             `${submitLabel} (${files.length})`
                         )}
                     </button>
+                </div>
+            )}
+            
+            {existingDocuments.length > 0 && (
+                <div className="mt-6 border-t border-slate-200 pt-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">Previously Uploaded</div>
+                    <div className="space-y-2">
+                        {existingDocuments.map((f, i) => (
+                            <div key={f.id || i} className="flex items-center gap-3 p-2.5 border border-slate-200 rounded-md bg-slate-50">
+                                <File size={18} className="text-slate-400" />
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-medium text-slate-700 truncate">{f.file_name}</div>
+                                    <div className="text-xs text-slate-400 font-mono-data">{((f.file_size_bytes || 0) / 1024).toFixed(1)} KB</div>
+                                </div>
+                                {onDeleteDocument && (
+                                    <button
+                                        onClick={() => onDeleteDocument(f.id)}
+                                        className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded transition-colors"
+                                        title="Delete file and extracted data"
+                                    >
+                                        <X size={16} />
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
         </div>

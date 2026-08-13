@@ -11,14 +11,14 @@ class ProcurementCategory(str, Enum):
 
 
 class RequestStatus(str, Enum):
-    DRAFT = "DRAFT"
-    UPLOADED = "UPLOADED"
-    EXTRACTING = "EXTRACTING"
-    REVIEW_REQUIRED = "REVIEW_REQUIRED"
-    READY_FOR_ANALYSIS = "READY_FOR_ANALYSIS"
-    ANALYZING = "ANALYZING"
-    ANALYZED = "ANALYZED"
-    FAILED = "FAILED"
+    DRAFT = "draft"
+    UPLOADED = "uploaded"
+    EXTRACTING = "extracting"
+    REVIEW_REQUIRED = "review_required"
+    READY_FOR_ANALYSIS = "ready_for_analysis"
+    ANALYZING = "analyzing"
+    ANALYZED = "analyzed"
+    FAILED = "error"
 
 
 class ProcurementRequest(BaseModel):

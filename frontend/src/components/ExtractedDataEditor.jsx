@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Field, Select } from "./FormBits";
-import { CaretDown, CaretUp, Cube, Users, Database, CurrencyDollar, Tag, Buildings } from "@phosphor-icons/react";
+import { CaretDown, CaretUp, Cube, Users, Database, CurrencyDollar, Tag, Buildings, Trash } from "@phosphor-icons/react";
+import { formatProductName } from "../lib/formatProductName";
 
 const CATEGORY_ICONS = {
     SOFTWARE: Database,
@@ -8,13 +9,19 @@ const CATEGORY_ICONS = {
     RESOURCE: Users,
 };
 
-export default function ExtractedDataEditor({ data, onChange, procurementType }) {
+export default function ExtractedDataEditor({ data, onChange }) {
     const items = Array.isArray(data) ? data : [];
     const [expandedItem, setExpandedItem] = useState(-1); // No item expanded by default
 
     const updateItem = (index, updates) => {
         const newItems = [...items];
         newItems[index] = { ...newItems[index], ...updates };
+        onChange(newItems);
+    };
+
+    const deleteItem = (index) => {
+        const newItems = [...items];
+        newItems.splice(index, 1);
         onChange(newItems);
     };
 
@@ -55,7 +62,7 @@ export default function ExtractedDataEditor({ data, onChange, procurementType })
                             className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50 transition-colors"
                             onClick={() => setExpandedItem(isExpanded ? -1 : i)}
                         >
-                            <div className="flex items-center gap-3 overflow-hidden">
+                            <div className="flex items-center gap-3 overflow-hidden flex-1 min-w-0 pr-4">
                                 <div className="p-2 rounded-md bg-blue-50 text-blue-600 shrink-0">
                                     <Icon size={18} weight="duotone" />
                                 </div>
@@ -65,21 +72,44 @@ export default function ExtractedDataEditor({ data, onChange, procurementType })
                                         <span className="text-[10px] font-mono-data bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">Item {i + 1}</span>
                                     </div>
                                     <div className="text-sm font-semibold text-slate-900 truncate">
-                                        {item.normalized_description || item.raw_description || "Unnamed Item"}
+                                        {formatProductName(item.normalized_description || item.raw_description) || "Unnamed Item"}
                                     </div>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-4 shrink-0 pl-4">
-                                <div className="text-right hidden sm:block">
-                                    <div className="text-xs text-slate-500">Line Total</div>
-                                    <div className="text-sm font-bold font-mono-data text-slate-900">
-                                        {item.currency || "$"} {
-                                            (item.line_total || ((item.unit_price || 0) * (item.quantity || 1)))
-                                                .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                                        }
+                            <div className="hidden sm:flex items-center shrink-0 bg-slate-50/80 rounded-lg px-3 py-2 border border-slate-100">
+                                <div className="text-right w-10">
+                                    <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Qty</div>
+                                    <div className="text-sm font-medium font-mono-data text-slate-600">
+                                        {item.quantity || 1}
                                     </div>
                                 </div>
-                                <div className="text-slate-400">
+                                <div className="text-slate-300 text-sm font-medium pt-3 w-8 text-center">×</div>
+                                <div className="text-right w-28">
+                                    <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Unit Price</div>
+                                    <div className="text-sm font-medium font-mono-data text-slate-700 truncate" title={`${item.currency || "$"}${(item.unit_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}>
+                                        {item.currency || "$"}{(item.unit_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </div>
+                                </div>
+                                <div className="text-slate-300 text-sm font-medium pt-3 w-8 text-center">=</div>
+                                <div className="text-right bg-emerald-50 px-3 py-1.5 rounded-md border border-emerald-200/50 shadow-sm w-36">
+                                    <div className="text-[10px] uppercase font-bold tracking-wider text-emerald-700">Line Total</div>
+                                    <div className="text-base font-bold font-mono-data text-emerald-950 truncate" title={`${item.currency || "$"}${(item.line_total || ((item.unit_price || 0) * (item.quantity || 1))).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}>
+                                        {item.currency || "$"}{(item.line_total || ((item.unit_price || 0) * (item.quantity || 1))).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0 pl-4">
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteItem(i);
+                                    }}
+                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                                    title="Delete item"
+                                >
+                                    <Trash size={18} />
+                                </button>
+                                <div className="text-slate-400 p-2 hover:bg-slate-50 rounded-md transition-colors">
                                     {isExpanded ? <CaretUp size={16} /> : <CaretDown size={16} />}
                                 </div>
                             </div>

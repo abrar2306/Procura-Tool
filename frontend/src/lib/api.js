@@ -42,32 +42,14 @@ api.interceptors.response.use(
     }
 );
 
-export const getBenchmarks = () => api.get("/benchmarks").then((r) => r.data);
-export const upsertBenchmark = (payload) => api.post("/benchmarks", payload).then((r) => r.data);
-export const deleteBenchmark = (role) => api.delete(`/benchmarks/${encodeURIComponent(role)}`).then((r) => r.data);
-export const setMultiplier = (value) => api.put("/benchmarks/multiplier", { value }).then((r) => r.data);
-export const importBenchmarks = (file) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    return api.post("/benchmarks/import", fd, { headers: { "Content-Type": "multipart/form-data" } }).then((r) => r.data);
-};
-
-// Catalog (historical procurement records)
-export const listCatalog = (kind) => api.get(`/catalog/${kind}`).then((r) => r.data);
-export const addCatalogRow = (kind, payload) => api.post(`/catalog/${kind}`, payload).then((r) => r.data);
-export const deleteCatalogRow = (kind, id) => api.delete(`/catalog/${kind}/${id}`).then((r) => r.data);
-export const importCatalog = (kind, file) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    return api.post(`/catalog/${kind}/import`, fd, { headers: { "Content-Type": "multipart/form-data" } }).then((r) => r.data);
-};
 
 export const createReview = (payload) => api.post("/requests", payload).then((r) => r.data);
 export const listReviews = () => api.get("/requests").then((r) => r.data);
 export const getReview = (id) => api.get(`/requests/${id}`).then((r) => r.data);
 export const updateReview = (id, payload) => api.patch(`/requests/${id}`, payload).then((r) => r.data);
 export const deleteReview = (id) => api.delete(`/requests/${id}`).then((r) => r.data);
-export const analyzeReview = (id) => api.post(`/requests/${id}/analyze`).then((r) => r.data);
+export const bulkDeleteReviews = ({ ids }) => api.delete("/requests/bulk", { data: { ids } }).then((r) => r.data);
+export const analyzeReview = (id, deepSearch = false) => api.post(`/requests/${id}/analyze${deepSearch ? "?deep_search=true" : ""}`).then((r) => r.data);
 export const getChatHistory = (id) => api.get(`/requests/${id}/chat`).then((r) => r.data);
 
 export const uploadDocuments = async (id, files) => {
@@ -79,7 +61,9 @@ export const uploadDocuments = async (id, files) => {
     const extRes = await api.post(`/requests/${id}/extract`);
     return extRes.data;
 };
+export const deleteDocument = (id, documentId) => api.delete(`/requests/${id}/documents/${documentId}`).then((r) => r.data);
 export const uploadDocumentsV2 = uploadDocuments; // use same logic
+export const getCacheStatus = (id) => api.get(`/requests/${id}/cache-status`).then((r) => r.data);
 
 export const compareProposals = (id) => api.post(`/requests/${id}/compare`).then((r) => r.data);
 

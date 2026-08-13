@@ -22,11 +22,6 @@ CREATE TABLE procurement_requests (
     title TEXT NOT NULL,
     -- Matching category used by the deterministic matching/scoring engine.
     category TEXT NOT NULL CHECK (category IN ('SOFTWARE', 'HARDWARE', 'RESOURCE')),
-    -- UI workflow selection and category; retain these independently from the
-    -- matching category above (for example software/services maps to RESOURCE).
-    procurement_type TEXT NOT NULL DEFAULT 'software'
-        CHECK (procurement_type IN ('software', 'hardware')),
-    review_category TEXT,
     supplier_name TEXT,
     currency TEXT CHECK (currency IS NULL OR currency ~ '^[A-Z]{3}$'),
     quoted_total NUMERIC CHECK (quoted_total IS NULL OR quoted_total >= 0),
@@ -92,93 +87,7 @@ CREATE TABLE extracted_items (
 );
 CREATE INDEX extracted_items_request_version_idx ON extracted_items (request_id, document_version);
 
--- Historical catalog records.  The three existing tables are deliberately
--- retained because the matching service selects one by procurement category.
-CREATE TABLE software_pricing (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id TEXT NOT NULL DEFAULT 'default-org',
-    canonical_name TEXT NOT NULL,
-    aliases JSONB NOT NULL DEFAULT '[]'::jsonb,
-    attributes JSONB NOT NULL DEFAULT '{}'::jsonb,
-    currency TEXT NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
-    unit TEXT,
-    benchmark_low NUMERIC NOT NULL,
-    benchmark_median NUMERIC NOT NULL,
-    benchmark_high NUMERIC NOT NULL,
-    region TEXT NOT NULL DEFAULT 'Global',
-    effective_from TIMESTAMPTZ,
-    effective_to TIMESTAMPTZ,
-    source_name TEXT NOT NULL,
-    source_type TEXT NOT NULL DEFAULT 'catalog' CHECK (source_type IN ('seed', 'catalog', 'custom')),
-    confidence NUMERIC,
-    volume_tiers JSONB NOT NULL DEFAULT '[]'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT valid_software_range CHECK (benchmark_low <= benchmark_median AND benchmark_median <= benchmark_high),
-    CONSTRAINT software_pricing_identity UNIQUE (organization_id, canonical_name, currency, region)
-);
 
-CREATE TABLE hardware_pricing (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id TEXT NOT NULL DEFAULT 'default-org',
-    canonical_name TEXT NOT NULL,
-    aliases JSONB NOT NULL DEFAULT '[]'::jsonb,
-    attributes JSONB NOT NULL DEFAULT '{}'::jsonb,
-    currency TEXT NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
-    unit TEXT,
-    benchmark_low NUMERIC NOT NULL,
-    benchmark_median NUMERIC NOT NULL,
-    benchmark_high NUMERIC NOT NULL,
-    region TEXT NOT NULL DEFAULT 'Global',
-    effective_from TIMESTAMPTZ,
-    effective_to TIMESTAMPTZ,
-    source_name TEXT NOT NULL,
-    source_type TEXT NOT NULL DEFAULT 'catalog' CHECK (source_type IN ('seed', 'catalog', 'custom')),
-    confidence NUMERIC,
-    volume_tiers JSONB NOT NULL DEFAULT '[]'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT valid_hardware_range CHECK (benchmark_low <= benchmark_median AND benchmark_median <= benchmark_high),
-    CONSTRAINT hardware_pricing_identity UNIQUE (organization_id, canonical_name, currency, region)
-);
-
-CREATE TABLE resource_pricing (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id TEXT NOT NULL DEFAULT 'default-org',
-    canonical_name TEXT NOT NULL,
-    aliases JSONB NOT NULL DEFAULT '[]'::jsonb,
-    attributes JSONB NOT NULL DEFAULT '{}'::jsonb,
-    currency TEXT NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
-    unit TEXT,
-    benchmark_low NUMERIC NOT NULL,
-    benchmark_median NUMERIC NOT NULL,
-    benchmark_high NUMERIC NOT NULL,
-    region TEXT NOT NULL DEFAULT 'Global',
-    effective_from TIMESTAMPTZ,
-    effective_to TIMESTAMPTZ,
-    source_name TEXT NOT NULL,
-    source_type TEXT NOT NULL DEFAULT 'catalog' CHECK (source_type IN ('seed', 'catalog', 'custom')),
-    confidence NUMERIC,
-    volume_tiers JSONB NOT NULL DEFAULT '[]'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT valid_resource_range CHECK (benchmark_low <= benchmark_median AND benchmark_median <= benchmark_high),
-    CONSTRAINT resource_pricing_identity UNIQUE (organization_id, canonical_name, currency, region)
-);
-CREATE INDEX resource_pricing_org_name_idx ON resource_pricing (organization_id, canonical_name);
-
--- Editable resource-rate grid and its per-organisation margin factor.
-CREATE TABLE resource_rate_benchmarks (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id TEXT NOT NULL,
-    role TEXT NOT NULL,
-    junior NUMERIC CHECK (junior IS NULL OR junior >= 0),
-    mid NUMERIC CHECK (mid IS NULL OR mid >= 0),
-    senior NUMERIC CHECK (senior IS NULL OR senior >= 0),
-    currency TEXT NOT NULL DEFAULT 'USD' CHECK (currency ~ '^[A-Z]{3}$'),
-    notes TEXT,
-    source TEXT NOT NULL DEFAULT 'custom',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT resource_rate_role_identity UNIQUE (organization_id, role)
-);
 
 CREATE TABLE organization_settings (
     organization_id TEXT PRIMARY KEY,
@@ -253,9 +162,7 @@ CREATE TABLE audit_events (
 CREATE TRIGGER procurement_requests_set_updated_at
     BEFORE UPDATE ON procurement_requests
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
-CREATE TRIGGER resource_rate_benchmarks_set_updated_at
-    BEFORE UPDATE ON resource_rate_benchmarks
-    FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
 CREATE TRIGGER organization_settings_set_updated_at
     BEFORE UPDATE ON organization_settings
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -266,10 +173,55 @@ CREATE TRIGGER organization_settings_set_updated_at
 ALTER TABLE procurement_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE extracted_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE software_pricing ENABLE ROW LEVEL SECURITY;
-ALTER TABLE hardware_pricing ENABLE ROW LEVEL SECURITY;
-ALTER TABLE resource_pricing ENABLE ROW LEVEL SECURITY;
-ALTER TABLE resource_rate_benchmarks ENABLE ROW LEVEL SECURITY;
+GRANT USAGE ON SCHEMA public TO service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON ROUTINES TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+
+-- Web Crawl Results and Caching Tables
+
+CREATE TABLE IF NOT EXISTS public.price_cache (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    cache_key TEXT UNIQUE NOT NULL,
+    oem_name TEXT,
+    product_name TEXT,
+    normalized_name TEXT,
+    part_number TEXT,
+    unit_price DECIMAL,
+    sources JSONB,
+    cached_at TIMESTAMPTZ DEFAULT now(),
+    expires_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_price_cache_key ON public.price_cache(cache_key);
+CREATE INDEX IF NOT EXISTS idx_price_cache_expires_at ON public.price_cache(expires_at);
+
+CREATE TABLE IF NOT EXISTS public.web_crawl_results (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    request_id UUID REFERENCES public.procurement_requests(id) ON DELETE CASCADE,
+    item_id UUID REFERENCES public.extracted_items(id) ON DELETE CASCADE,
+    source_name TEXT,
+    source_url TEXT,
+    oem_name TEXT,
+    product_name TEXT,
+    normalized_name TEXT,
+    part_number TEXT,
+    quantity INT,
+    unit_price DECIMAL,
+    currency TEXT,
+    match_type TEXT,
+    crawled_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_web_crawl_results_request_id ON public.web_crawl_results(request_id);
+CREATE INDEX IF NOT EXISTS idx_web_crawl_results_item_id ON public.web_crawl_results(item_id);
+
+ALTER TABLE public.price_cache ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.web_crawl_results ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE organization_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE benchmark_matches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE score_results ENABLE ROW LEVEL SECURITY;

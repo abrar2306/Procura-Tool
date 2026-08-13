@@ -1,15 +1,14 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { PROCUREMENT_TYPES, CATEGORIES } from "../lib/categories";
+import { CATEGORIES } from "../lib/categories";
 import { createReview } from "../lib/api";
-import { ArrowRight, ArrowLeft, CheckCircle, Package, Cube, FileText, HandCoins } from "@phosphor-icons/react";
+import { ArrowRight, ArrowLeft, CheckCircle, Package, Cube, FileText } from "@phosphor-icons/react";
 
-const iconFor = (id) => ({
-    license_sku: HandCoins,
-    services: FileText,
-    hardware_product: Cube,
-    hardware_support: FileText,
-}[id] || FileText);
+const iconFor = (iconName) => ({
+    Package,
+    Cube,
+    FileText,
+}[iconName] || FileText);
 
 const StepDot = ({ n, label, active, done }) => (
     <div className="flex items-center gap-2">
@@ -27,25 +26,19 @@ const StepDot = ({ n, label, active, done }) => (
 export default function NewReview() {
     const nav = useNavigate();
     const [step, setStep] = useState(1);
-    const [ptype, setPtype] = useState(null);
     const [category, setCategory] = useState(null);
     const [projectName, setProjectName] = useState("");
     const [submitting, setSubmitting] = useState(false);
 
-    const canNextStep1 = !!ptype;
-    const canNextStep2 = !!category;
+    const canNextStep1 = !!category;
     const canSubmit = projectName.trim().length > 0;
 
     const submit = async () => {
         setSubmitting(true);
         try {
-            let backendCategory = "SOFTWARE";
-            if (ptype === "hardware") backendCategory = "HARDWARE";
-            else if (category === "services") backendCategory = "RESOURCE"; // or SOFTWARE, but RESOURCE is supported in MVP
-            
+            const selectedCat = CATEGORIES.find(c => c.id === category);
             const r = await createReview({
-                procurement_type: ptype,
-                category: backendCategory,
+                category: selectedCat.backendCategory,
                 title: projectName,
             });
             nav(`/review/${r.id}`);
@@ -58,36 +51,42 @@ export default function NewReview() {
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
             {/* Stepper */}
             <div className="flex items-center gap-6 mb-8">
-                <StepDot n={1} label="Type" active={step === 1} done={step > 1} />
+                <StepDot n={1} label="Category" active={step === 1} done={step > 1} />
                 <div className="flex-1 h-px bg-slate-200" />
-                <StepDot n={2} label="Category" active={step === 2} done={step > 2} />
-                <div className="flex-1 h-px bg-slate-200" />
-                <StepDot n={3} label="Details" active={step === 3} done={false} />
+                <StepDot n={2} label="Details" active={step === 2} done={false} />
             </div>
 
             {step === 1 && (
                 <div className="animate-step">
                     <div className="mb-8">
-                        <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Step 1 of 3</div>
-                        <h2 className="font-heading text-3xl font-bold text-slate-900">Select procurement type</h2>
-                        <p className="text-slate-500 mt-2">Choose whether you&apos;re buying software or hardware. We&apos;ll tailor the workflow accordingly.</p>
+                        <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Step 1 of 2</div>
+                        <h2 className="font-heading text-3xl font-bold text-slate-900">Select procurement category</h2>
+                        <p className="text-slate-500 mt-2">Choose what you're buying to tailor the analysis workflow.</p>
                     </div>
-                    <div className="grid md:grid-cols-2 gap-4">
-                        {PROCUREMENT_TYPES.map((t) => {
-                            const Icon = t.id === "software" ? Package : Cube;
-                            const selected = ptype === t.id;
+                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {CATEGORIES.map((c) => {
+                            const Icon = iconFor(c.icon);
+                            const selected = category === c.id;
+                            const disabled = !c.enabled;
                             return (
                                 <button
-                                    key={t.id}
-                                    data-testid={`type-option-${t.id}`}
-                                    onClick={() => setPtype(t.id)}
-                                    className={`text-left p-6 rounded-lg border transition-all ${
+                                    key={c.id}
+                                    data-testid={`category-option-${c.id}`}
+                                    onClick={() => !disabled && setCategory(c.id)}
+                                    disabled={disabled}
+                                    className={`relative text-left p-6 rounded-lg border transition-all ${
+                                        disabled ? "border-slate-100 bg-slate-50 opacity-60 cursor-not-allowed" :
                                         selected ? "border-slate-900 ring-2 ring-slate-900/10 bg-white" : "border-slate-200 hover:border-slate-400 bg-white"
                                     }`}
                                 >
                                     <Icon size={28} weight="duotone" className={selected ? "text-blue-600" : "text-slate-400"} />
-                                    <div className="mt-3 font-heading font-semibold text-slate-900">{t.label}</div>
-                                    <div className="text-sm text-slate-500 mt-1">{t.desc}</div>
+                                    <div className="mt-3 font-heading font-semibold text-slate-900">{c.label}</div>
+                                    <div className="text-sm text-slate-500 mt-1">{c.desc}</div>
+                                    {disabled && (
+                                        <div className="absolute top-4 right-4 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-200 text-slate-600">
+                                            Coming soon
+                                        </div>
+                                    )}
                                 </button>
                             );
                         })}
@@ -98,43 +97,7 @@ export default function NewReview() {
             {step === 2 && (
                 <div className="animate-step">
                     <div className="mb-8">
-                        <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Step 2 of 3</div>
-                        <h2 className="font-heading text-3xl font-bold text-slate-900">Select procurement category</h2>
-                        <p className="text-slate-500 mt-2">The remaining workflow — form or document upload — adapts to your selection.</p>
-                    </div>
-                    <div className="grid md:grid-cols-2 gap-3">
-                        {(CATEGORIES[ptype] || []).map((c) => {
-                            const Icon = iconFor(c.id);
-                            const selected = category === c.id;
-                            return (
-                                <button
-                                    key={c.id}
-                                    data-testid={`category-option-${c.id}`}
-                                    onClick={() => setCategory(c.id)}
-                                    className={`text-left p-4 rounded-lg border flex items-start gap-3 transition-all ${
-                                        selected ? "border-slate-900 ring-2 ring-slate-900/10 bg-white" : "border-slate-200 hover:border-slate-400 bg-white"
-                                    }`}
-                                >
-                                    <div className={`w-9 h-9 rounded-md flex items-center justify-center ${selected ? "bg-slate-900" : "bg-slate-100"}`}>
-                                        <Icon size={18} weight="duotone" className={selected ? "text-white" : "text-slate-600"} />
-                                    </div>
-                                    <div>
-                                        <div className="font-medium text-slate-900">{c.label}</div>
-                                        <div className="text-xs text-slate-500 mt-0.5">
-                                            {c.workflow === "form" ? "Guided commercial form" : "Document upload & AI extraction"}
-                                        </div>
-                                    </div>
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-            )}
-
-            {step === 3 && (
-                <div className="animate-step">
-                    <div className="mb-8">
-                        <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Step 3 of 3</div>
+                        <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Step 2 of 2</div>
                         <h2 className="font-heading text-3xl font-bold text-slate-900">Project details</h2>
                         <p className="text-slate-500 mt-2">Give this review a name so you can find it later.</p>
                     </div>
@@ -145,7 +108,7 @@ export default function NewReview() {
                                 data-testid="project-name-input"
                                 value={projectName}
                                 onChange={(e) => setProjectName(e.target.value)}
-                                placeholder="e.g. SAP S/4HANA Managed Services Renewal"
+                                placeholder="e.g. Cisco Meraki Hardware Refresh"
                                 className="mt-1.5 w-full px-3 py-2.5 rounded-md border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             />
                         </div>
@@ -162,11 +125,11 @@ export default function NewReview() {
                 >
                     <ArrowLeft size={16} /> Back
                 </button>
-                {step < 3 ? (
+                {step < 2 ? (
                     <button
                         data-testid="wizard-next-button"
                         onClick={() => setStep(step + 1)}
-                        disabled={(step === 1 && !canNextStep1) || (step === 2 && !canNextStep2)}
+                        disabled={!canNextStep1}
                         className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2.5 rounded-md transition-colors"
                     >
                         Continue <ArrowRight size={16} />

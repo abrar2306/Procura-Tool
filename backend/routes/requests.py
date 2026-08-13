@@ -30,8 +30,6 @@ router = APIRouter(prefix="/api/requests", tags=["Requests"])
 class CreateRequestPayload(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     category: ProcurementCategory
-    procurement_type: Optional[str] = None
-    review_category: Optional[str] = None
     supplier_name: Optional[str] = None
     currency: Optional[str] = None
     quoted_total: Optional[float] = Field(default=None, ge=0)
@@ -46,9 +44,11 @@ class UpdateRequestPayload(BaseModel):
     supplier_name: Optional[str] = None
     currency: Optional[str] = None
     quoted_total: Optional[float] = Field(default=None, ge=0)
-    procurement_type: Optional[str] = None
-    review_category: Optional[str] = None
     form_data: Optional[dict[str, Any]] = None
+
+
+class BulkDeletePayload(BaseModel):
+    ids: list[str] = Field(min_length=1)
 
 
 def now() -> str:
@@ -78,15 +78,7 @@ def _document_view(document: dict[str, Any]) -> dict[str, Any]:
 def review_view(record: dict[str, Any]) -> dict[str, Any]:
     result = dict(record)
     result["status"] = ui_status(result.get("status"))
-    # A few deployments may still have old rows without a review category.
-    result["procurement_type"] = result.get("procurement_type") or (
-        "hardware" if result.get("category") == "HARDWARE" else "software"
-    )
-    result["review_category"] = result.get("review_category") or result.get("category")
-    # The frontend historically reads category.  Prefer the workflow category
-    # when it exists, while preserving procurement_category for APIs.
-    result["procurement_category"] = result.get("category")
-    result["category"] = result["review_category"]
+    result["category"] = result.get("category")
     result["form_data"] = result.get("form_data") or {}
     docs = [_document_view(d) for d in result.get("documents", [])]
     result["documents"] = [d for d in docs if int(d.get("document_version") or 1) == 1]
@@ -196,8 +188,6 @@ async def create_request(
         "id": request_id,
         "title": payload.title or f"{payload.category.value.title()} Procurement Review",
         "category": payload.category.value,
-        "procurement_type": payload.procurement_type,
-        "review_category": payload.review_category,
         "supplier_name": payload.supplier_name,
         "currency": payload.currency,
         "quoted_total": payload.quoted_total,
@@ -300,6 +290,38 @@ async def update_request(
         raise HTTPException(500, f"Unable to update request: {exc}") from exc
 
 
+@router.delete("/bulk")
+async def bulk_delete_requests(
+    payload: BulkDeletePayload, x_org_id: str = Header("default-org")
+):
+    db = get_db()
+    if not db:
+        deleted_count = 0
+        for req_id in payload.ids:
+            record = local_store.requests.get(req_id)
+            if record and record["organization_id"] == x_org_id:
+                del local_store.requests[req_id]
+                local_store.documents.pop(req_id, None)
+                local_store.items.pop(req_id, None)
+                local_store.messages.pop(req_id, None)
+                deleted_count += 1
+        if deleted_count > 0:
+            local_store.save()
+        return {"ok": True, "deleted": deleted_count}
+    
+    try:
+        result = (
+            db.table("procurement_requests")
+            .delete()
+            .in_("id", payload.ids)
+            .eq("organization_id", x_org_id)
+            .execute()
+        )
+        return {"ok": True, "deleted": len(result.data)}
+    except Exception as exc:
+        raise HTTPException(500, f"Unable to delete requests: {exc}") from exc
+
+
 @router.delete("/{request_id}")
 async def delete_request(request_id: str, x_org_id: str = Header("default-org")):
     db = get_db()
@@ -385,6 +407,40 @@ async def upload_document(
         local_store.save()
     return {"ok": True, "documents": documents}
 
+
+@router.delete("/{request_id}/documents/{document_id}")
+async def delete_document(
+    request_id: str, 
+    document_id: str, 
+    x_org_id: str = Header("default-org")
+):
+    db = get_db()
+    if db:
+        # 1. Manually delete extracted items for this document to clear the data
+        db.table("extracted_items").delete().eq("document_id", document_id).execute()
+        
+        # 2. Get storage path to delete from Supabase storage
+        doc_res = db.table("documents").select("storage_bucket, storage_path").eq("id", document_id).execute()
+        if doc_res.data:
+            doc = doc_res.data[0]
+            try:
+                db.storage.from_(doc["storage_bucket"]).remove([doc["storage_path"]])
+            except Exception:
+                pass
+                
+        # 3. Delete document record (cascade will handle other constraints if any)
+        db.table("documents").delete().eq("id", document_id).execute()
+    else:
+        docs = local_store.documents.get(request_id, [])
+        local_store.documents[request_id] = [d for d in docs if d["id"] != document_id]
+        if document_id in local_store.files:
+            del local_store.files[document_id]
+        
+        items = local_store.items.get(request_id, [])
+        local_store.items[request_id] = [i for i in items if i.get("document_id") != document_id]
+        local_store.save()
+
+    return {"ok": True}
 
 def _fallback_item(
     request_id: str, document_id: str, filename: str, text: str, category: str, document_version: int = 1

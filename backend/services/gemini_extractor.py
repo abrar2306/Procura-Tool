@@ -30,7 +30,7 @@ Return ONLY a JSON object of the form:
 Each item is a flat object with ONLY these keys (use null if unknown):
 - category: string  (one of "SOFTWARE", "HARDWARE", "RESOURCE")
 - raw_description: string (exact wording from the document)
-- normalized_description: string (a short canonical form)
+- normalized_description: string (standardized, officially-cased version of the product name, e.g., "Cisco Catalyst 9200L 48-port PoE+ Data Switch")
 - manufacturer: string
 - product_name: string
 - sku: string
